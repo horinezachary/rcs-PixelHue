@@ -1,0 +1,391 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      html, body { height: 100%; overflow: hidden; }
+      main { height: 100%; display: flex; flex-direction: column; padding: 14px 24px 16px; gap: 12px; box-sizing: border-box; }
+      header { display: flex; align-items: center; gap: 14px; min-height: 48px; }
+      h1 { margin: 0; font-size: 26px; font-weight: 700; white-space: nowrap; }
+      .note { margin: 0; color: var(--rcs-muted); font-size: 14px; line-height: 1.45; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+      .grow { flex: 1; }
+      .empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; text-align: center; }
+      .empty p { margin: 0; color: var(--rcs-muted); font-size: 17px; max-width: 900px; line-height: 1.5; }
+      .label { font-size: 11px; font-weight: 700; letter-spacing: 0.08em; color: var(--rcs-muted); }
+      .ok { --sev: var(--rcs-ok); } .warning { --sev: var(--rcs-warn); } .critical, .off { --sev: var(--rcs-error); } .unknown { --sev: var(--rcs-muted); } .live { --sev: var(--rcs-ok); }
+      .pill { height: 30px; padding: 0 12px; border-radius: 15px; font: 700 13.5px var(--rcs-font); display: inline-flex; align-items: center; gap: 8px; white-space: nowrap;
+        color: var(--sev); background: color-mix(in srgb, var(--sev) 12%, transparent); border: 1px solid color-mix(in srgb, var(--sev) 40%, transparent); }
+      .dot { display: inline-block; width: 9px; height: 9px; border-radius: 5px; background: var(--sev); flex: none; }
+      .tabs { display: flex; gap: 8px; }
+      .tabs button { height: 44px; padding: 0 16px; border-radius: 10px; font: 600 15px var(--rcs-font); color: var(--rcs-text); background: var(--rcs-surface);
+        border: 1px solid var(--rcs-border); cursor: pointer; white-space: nowrap; display: flex; align-items: center; gap: 8px; }
+      .tabs button[aria-pressed=true] { border-color: var(--rcs-accent); color: var(--rcs-accent); }
+      :root { --pgm: #E5484D; --pvw: #30A46C; }
+
+      /* transition controls */
+      .seg { display: flex; border: 1px solid var(--rcs-border); border-radius: 10px; overflow: hidden; }
+      .seg button { height: 44px; padding: 0 16px; font: 700 14px var(--rcs-font); letter-spacing: 0.04em; background: var(--rcs-surface); color: var(--rcs-muted); border: 0; cursor: pointer; }
+      .seg button + button { border-left: 1px solid var(--rcs-border); }
+      .seg button.on.pvw { background: var(--pvw); color: #fff; } .seg button.on.pgm { background: var(--pgm); color: #fff; }
+      .big { height: 48px; min-width: 120px; padding: 0 22px; border-radius: 10px; font: 800 18px var(--rcs-font); letter-spacing: 0.08em; cursor: pointer;
+        border: 1px solid var(--rcs-border); background: var(--rcs-surface); color: var(--rcs-text); }
+      .big.take { background: var(--pgm); border-color: var(--pgm); color: #fff; }
+      .big:disabled { opacity: 0.4; cursor: default; }
+
+      /* canvases: each screen drawn to scale with its layers as boxes named by their source */
+      .pv { display: grid; grid-template-columns: minmax(0, 720px) 1fr; gap: 18px; flex: 1; min-height: 0; }
+      .rows { display: flex; flex-direction: column; gap: 8px; min-height: 0; }
+      .bus { display: flex; flex-direction: column; gap: 4px; min-height: 0; flex: 1; }
+      .bus .label { display: flex; gap: 10px; align-items: center; }
+      .bus.pgm .label b { color: var(--pgm); } .bus.pvw .label b { color: var(--pvw); }
+      .strip { display: flex; gap: 10px; align-items: flex-start; flex: 1; min-height: 0; overflow: hidden; }
+      .scr { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+      .scr .sn { font-size: 12px; font-weight: 600; color: var(--rcs-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .canvas { position: relative; background: #050607; border: 2px solid var(--rcs-border); border-radius: 4px; overflow: hidden; box-sizing: content-box; }
+      .bus.pgm .canvas { border-color: color-mix(in srgb, var(--pgm) 70%, transparent); } .bus.pvw .canvas { border-color: color-mix(in srgb, var(--pvw) 70%, transparent); }
+      .ly { position: absolute; box-sizing: border-box; border: 1px solid rgba(255,255,255,0.55); background: color-mix(in srgb, var(--hue) 55%, #111);
+        color: #fff; font: 600 11px var(--rcs-font); padding: 2px 4px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; line-height: 1.2; }
+      .ly.off { background: repeating-linear-gradient(45deg, #2a1414 0 6px, #1a0c0c 6px 12px); border-color: var(--rcs-error); color: #ffb4b0; }
+      .canvas .none { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #666; font-size: 11px; }
+
+      .presets { display: flex; flex-direction: column; gap: 8px; min-height: 0; }
+      .grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); grid-auto-rows: minmax(0, 1fr); gap: 8px; flex: 1; min-height: 0; }
+      .tile { border: 1px solid var(--rcs-border); border-radius: 10px; background: var(--rcs-surface); color: var(--rcs-text); font: inherit; text-align: left; padding: 8px 12px;
+        display: flex; flex-direction: column; justify-content: space-between; cursor: pointer; min-width: 0; min-height: 0; overflow: hidden; }
+      .tile .n { font-size: 17px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .tile .t { font: 700 11px var(--rcs-font); letter-spacing: 0.08em; color: var(--rcs-muted); display: flex; justify-content: space-between; }
+      .tile.pvw { background: color-mix(in srgb, var(--pvw) 30%, var(--rcs-surface)); border-color: var(--pvw); }
+      .tile.pgm, .tile.both { background: color-mix(in srgb, var(--pgm) 30%, var(--rcs-surface)); border-color: var(--pgm); }
+      .tile.pgm .t, .tile.pvw .t, .tile.both .t { color: var(--rcs-text); }
+      .tile.armed { background: #3A2A0E; border-color: var(--rcs-accent); color: #FFE2B0; }
+      .pager { display: flex; gap: 8px; align-items: center; }
+
+      /* outputs */
+      .cards { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(300px, 1fr); gap: 12px; flex: 1; min-height: 0; overflow-x: auto; }
+      .card { border: 1px solid var(--rcs-border); border-radius: 14px; background: var(--rcs-surface); padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; min-width: 0; min-height: 0; overflow: hidden; }
+      .card .top { display: flex; gap: 10px; align-items: center; }
+      .card .n { font-size: 19px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; min-width: 0; }
+      .badge { font: 700 11px var(--rcs-font); letter-spacing: 0.06em; padding: 3px 7px; border-radius: 6px; border: 1px solid currentColor; white-space: nowrap; color: var(--rcs-muted); }
+      .badge.sel { color: var(--rcs-accent); }
+      .src { display: grid; grid-template-columns: 44px 1fr; gap: 4px 10px; font-size: 14px; align-items: baseline; }
+      .src .b { font: 800 11px var(--rcs-font); letter-spacing: 0.08em; }
+      .src .b.pgm { color: var(--pgm); } .src .b.pvw { color: var(--pvw); }
+      .src .v { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .src .v .bad { color: var(--rcs-error); }
+      .outs { font: 12px var(--rcs-mono); color: var(--rcs-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .mvr { display: grid; gap: 3px; }
+      .mvr i { font-style: normal; background: #0b0d10; border: 1px solid var(--rcs-border); border-radius: 3px; font-size: 11px; padding: 3px 5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--rcs-text); }
+
+      /* inputs */
+      .inputs { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 8px; align-content: start; overflow-y: auto; flex: 1; min-height: 0; }
+      .in { border: 1px solid var(--rcs-border); border-radius: 10px; background: var(--rcs-surface); padding: 8px 12px; display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+      .in .top { display: flex; align-items: center; gap: 8px; }
+      .in .n { font-size: 16px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; }
+      .in .f { font: 12px var(--rcs-mono); color: var(--rcs-muted); }
+      .in .u { font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .in .u b { font-weight: 800; letter-spacing: 0.06em; font-size: 11px; }
+      .in.off .n { color: var(--rcs-muted); }
+
+      /* setup */
+      .setup { flex: 1; min-height: 0; display: grid; grid-template-columns: 420px 1fr 520px; gap: 22px; }
+      .col { display: flex; flex-direction: column; gap: 12px; min-height: 0; }
+      .toggle { display: flex; align-items: center; gap: 14px; font-size: 16px; }
+      .list { border: 1px solid var(--rcs-border); border-radius: 12px; background: var(--rcs-surface); overflow-y: auto; }
+      .item { display: flex; align-items: center; gap: 14px; padding: 8px 14px; border-bottom: 1px solid var(--rcs-border); }
+      .item:last-child { border-bottom: 0; }
+      .item .t { flex: 1; min-width: 0; }
+      .item .n { font-size: 17px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .item .d { font: 13px var(--rcs-mono); color: var(--rcs-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+      .toast { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); background: #3A2A0E; border: 2px solid var(--rcs-accent); color: #FFE2B0;
+        padding: 10px 20px; border-radius: 12px; font-size: 17px; font-weight: 600; white-space: nowrap; z-index: 50; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <h1 id="title">Presets</h1>
+        <span class="pill" id="state"><span class="dot"></span><span id="stateText"></span></span>
+        <span class="note" id="sub"></span>
+        <div class="grow"></div>
+        <div class="tabs" id="swTabs" role="group" aria-label="Switcher"></div>
+        <div id="ctl" style="display: flex; gap: 10px; align-items: center">
+          <div class="seg" role="group" aria-label="Load presets to">
+            <button id="toPvw" class="pvw">PVW</button><button id="toPgm" class="pgm">PGM</button>
+          </div>
+          <button class="big" id="cut">CUT</button>
+          <button class="big take" id="take">TAKE</button>
+        </div>
+      </header>
+
+      <div class="empty" id="empty" hidden>
+        <p>No switcher yet. Add a PixelHue Q8 by its IP address in Setup. The module only reads from it until you turn on Allow controls.</p>
+        <rcs-button id="emptySetup" variant="primary">Open Setup</rcs-button>
+      </div>
+      <div class="empty" id="waiting" hidden><p id="waitingText"></p></div>
+
+      <section id="view-presets" class="pv" hidden>
+        <div class="rows">
+          <div class="bus pgm"><span class="label"><b>PROGRAM</b><span id="pgmName"></span></span><div class="strip" id="pgmStrip"></div></div>
+          <div class="bus pvw"><span class="label"><b>PREVIEW</b><span id="pvwName"></span></span><div class="strip" id="pvwStrip"></div></div>
+        </div>
+        <div class="presets">
+          <div class="grid" id="grid"></div>
+          <div class="pager" id="pager"></div>
+        </div>
+      </section>
+
+      <section id="view-outputs" class="cards" hidden></section>
+      <section id="view-inputs" class="inputs" hidden></section>
+
+      <section id="view-setup" class="setup" hidden>
+        <div class="col">
+          <span class="label">ADD A SWITCHER</span>
+          <rcs-field id="address" label="IP address" kind="ip" placeholder="192.168.0.10"></rcs-field>
+          <label class="toggle"><rcs-toggle id="allowControls" label="Allow controls"></rcs-toggle>Allow controls: load presets, Take and Cut</label>
+          <rcs-field id="transition" label="Transition, ms (0: the switcher's own)" kind="number"></rcs-field>
+        </div>
+        <div class="col">
+          <span class="label" id="listHead">SWITCHERS</span>
+          <div class="list" id="swList"></div>
+        </div>
+        <div class="col">
+          <span class="label">HOW IT WORKS</span>
+          <p class="note" style="white-space: normal">A preset key loads to preview at once. With Load to PGM it goes straight to program, after a second press within 3 seconds. Take and Cut act on the screens selected on the switcher, which loading a preset selects. Everything shown is read from the switcher about once a second.</p>
+          <p class="note" style="white-space: normal">Named saves hold the switcher list, Allow controls and the transition time. Restoring one never sends anything to a switcher. The port is 19998 unless set in the web view.</p>
+        </div>
+      </section>
+    </main>
+
+    <div class="toast" id="toast" role="status" hidden></div>
+
+    <rcs-dialog id="confirm">
+      <span id="confirmText"></span>
+      <div slot="buttons">
+        <rcs-button id="no">Cancel</rcs-button>
+        <rcs-button id="yes" variant="danger">OK</rcs-button>
+      </div>
+    </rcs-dialog>
+
+    <script type="module">
+      const $ = (id) => document.getElementById(id);
+      const TITLES = { presets: 'Presets', outputs: 'Outputs', inputs: 'Inputs', setup: 'Setup' };
+      const HUES = ['#3E63DD', '#8E4EC6', '#12A594', '#D6409F', '#F76B15', '#0090FF', '#46A758', '#E54666', '#AB4ABA', '#FFC53D'];
+      let s = null;
+      let onYes = null;
+
+      function el(tag, attrs = {}, text) {
+        const e = document.createElement(tag);
+        for (const [k, v] of Object.entries(attrs)) {
+          if (v === true) e.setAttribute(k, '');
+          else if (v !== false && v != null) e.setAttribute(k, String(v));
+        }
+        if (text != null) e.textContent = text;
+        return e;
+      }
+      const button = (text, variant, fn, disabled) => {
+        const b = el('rcs-button', { size: 'small', variant, disabled: !!disabled }, text);
+        b.addEventListener('click', (e) => { e.stopPropagation(); if (!disabled) fn(); });
+        return b;
+      };
+      function ask(text, ok, variant, fn) {
+        $('confirmText').textContent = text;
+        $('yes').textContent = ok;
+        $('yes').setAttribute('variant', variant);
+        onYes = fn;
+        $('confirm').show();
+      }
+      $('no').onclick = () => { $('confirm').close(); if (s) $('allowControls').checked = s.allowControls; };
+      $('yes').onclick = () => { $('confirm').close(); onYes?.(); };
+      const hue = (l) => HUES[(l.inputId ?? l.sourceType + 7) % HUES.length];
+
+      /** One screen to scale, height h px, its layers as boxes named by their source. */
+      function canvas(scr, layers, h, maxW) {
+        const scale = Math.min(h / scr.height, maxW / scr.width);
+        const c = el('div', { class: 'canvas', style: `width: ${Math.round(scr.width * scale)}px; height: ${Math.round(scr.height * scale)}px` });
+        if (!layers.length) c.append(el('div', { class: 'none' }, 'empty'));
+        for (const l of layers) {
+          const b = el('div', { class: 'ly' + (l.signal === 'off' ? ' off' : ''), title: l.source,
+            style: `left: ${l.x * scale}px; top: ${l.y * scale}px; width: ${Math.max(6, l.w * scale)}px; height: ${Math.max(6, l.h * scale)}px; --hue: ${hue(l)}` }, l.source);
+          c.append(b);
+        }
+        return c;
+      }
+
+      function draw() {
+        if (!s) return;
+        const v = s.view;
+        const sw = s.switcher;
+        const none = !s.entries.length && v !== 'setup';
+        const wait = !none && v !== 'setup' && !sw?.read;
+        $('title').textContent = TITLES[v];
+        const st = !sw ? 'unknown' : sw.reachable ? 'ok' : sw.read ? 'critical' : 'unknown';
+        $('state').className = 'pill ' + st;
+        $('stateText').textContent = !sw ? 'No switcher' : sw.reachable ? `${sw.name}${sw.model ? ' · ' + sw.model : ''}` : sw.lastError ? `${sw.name} · ${sw.lastError}` : `${sw.name} · connecting`;
+        $('sub').textContent = !s.allowControls ? 'Read only: turn on Allow controls in Setup' : s.takeScreens.length ? `Take and Cut: ${s.takeScreens.join(', ')}` : 'No screen selected on the switcher';
+        $('empty').hidden = !none;
+        $('waiting').hidden = !wait;
+        $('waitingText').textContent = sw?.lastError ? `${sw.name} is not answering: ${sw.lastError}` : 'Reading the switcher…';
+        for (const x of ['presets', 'outputs', 'inputs', 'setup']) $('view-' + x).hidden = none || wait || v !== x;
+        $('ctl').hidden = v !== 'presets' || none || wait;
+        drawTabs();
+        if (!none && !wait) ({ presets: drawPresets, outputs: drawOutputs, inputs: drawInputs, setup: drawSetup })[v]();
+        const t = $('toast');
+        t.hidden = !s.armed?.what;
+        if (s.armed?.what) t.textContent = `Press again to send: ${s.armed.what}`;
+      }
+
+      function drawTabs() {
+        const box = $('swTabs');
+        box.replaceChildren();
+        box.hidden = s.view === 'setup' || s.switchers.length < 2;
+        for (const x of s.switchers) {
+          const b = el('button', { 'aria-pressed': x.id === s.current, class: x.reachable ? 'ok' : 'critical' });
+          b.append(el('span', { class: 'dot' }), x.name);
+          b.onclick = () => rcs.send({ type: 'select', id: x.id });
+          box.append(b);
+        }
+      }
+
+      function drawPresets() {
+        const sw = s.switcher;
+        const live = sw.reachable && s.allowControls;
+        $('toPvw').classList.toggle('on', s.target === 'pvw');
+        $('toPgm').classList.toggle('on', s.target === 'pgm');
+        $('take').disabled = $('cut').disabled = !live || !s.takeScreens.length || s.busy;
+        $('pgmName').textContent = sw.presets.filter((p) => p.region === 'pgm' || p.region === 'both').map((p) => p.name).join(', ');
+        $('pvwName').textContent = sw.presets.filter((p) => p.region === 'pvw' || p.region === 'both').map((p) => p.name).join(', ');
+        const screens = sw.screens.filter((x) => x.kind !== 'mvr');
+        for (const [bus, id] of [['pgm', 'pgmStrip'], ['pvw', 'pvwStrip']]) {
+          const box = $(id);
+          box.replaceChildren();
+          const h = Math.max(60, Math.min(118, (box.clientHeight || 140) - 20));
+          const total = screens.reduce((a, x) => a + x.width / x.height, 0) || 1;
+          const maxW = Math.max(20, ((box.clientWidth || 700) - 16 * screens.length) / total); // 10 px gap + 4 px border per screen
+          for (const x of screens) {
+            const d = el('div', { class: 'scr' });
+            d.append(el('span', { class: 'sn' }, x.name + (x.selected ? ' ●' : '')), canvas(x, x[bus], h, (x.width / x.height) * maxW));
+            box.append(d);
+          }
+        }
+        const per = 15;
+        const pages = Math.max(1, Math.ceil(sw.presets.length / per));
+        if (drawPresets.page == null || drawPresets.page >= pages) drawPresets.page = 0;
+        const g = $('grid');
+        g.replaceChildren();
+        for (const p of sw.presets.slice(drawPresets.page * per, drawPresets.page * per + per)) {
+          const armed = s.armed?.guid === p.guid;
+          const t = el('button', { class: 'tile ' + (armed ? 'armed' : p.region) });
+          const tag = el('span', { class: 't' });
+          tag.append(el('span', {}, `PRESET ${p.serial}`), el('span', {}, armed ? 'TAP AGAIN' : p.region === 'both' ? 'PGM + PVW' : p.region.toUpperCase()));
+          t.append(el('span', { class: 'n' }, p.name), tag);
+          t.onclick = () => rcs.send({ type: 'press-preset', guid: p.guid });
+          g.append(t);
+        }
+        const pg = $('pager');
+        pg.replaceChildren();
+        if (pages > 1) {
+          pg.append(button('◀', undefined, () => { drawPresets.page = Math.max(0, drawPresets.page - 1); draw(); }, drawPresets.page === 0),
+            el('span', { class: 'note' }, `Page ${drawPresets.page + 1} of ${pages}`),
+            button('▶', undefined, () => { drawPresets.page = Math.min(pages - 1, drawPresets.page + 1); draw(); }, drawPresets.page === pages - 1));
+        }
+      }
+
+      function srcLine(layers) {
+        const v = el('span', { class: 'v' });
+        if (!layers.length) v.textContent = '–';
+        layers.forEach((l, i) => {
+          if (i) v.append(', ');
+          v.append(el('span', { class: l.signal === 'off' ? 'bad' : '' }, l.source));
+        });
+        return v;
+      }
+
+      function drawOutputs() {
+        const box = $('view-outputs');
+        box.replaceChildren();
+        for (const x of s.switcher.screens) {
+          const c = el('div', { class: 'card' });
+          const top = el('div', { class: 'top' });
+          top.append(el('span', { class: 'n' }, x.name), el('span', { class: 'badge' }, { main: 'SCREEN', aux: 'AUX', mvr: 'MULTIVIEW' }[x.kind]));
+          if (x.selected) top.append(el('span', { class: 'badge sel' }, 'SELECTED'));
+          if (x.freeze) top.append(el('span', { class: 'badge' }, 'FROZEN'));
+          if (x.ftb) top.append(el('span', { class: 'badge sel' }, 'FTB'));
+          c.append(top, el('span', { class: 'outs' }, `${x.width}×${x.height}${x.outputs.length ? ' · ' + x.outputs.join(', ') : ''}`));
+          if (x.kind === 'mvr') {
+            const cols = Math.ceil(Math.sqrt(x.pgm.length || 1) * 1.2);
+            const g = el('div', { class: 'mvr', style: `grid-template-columns: repeat(${cols}, minmax(0, 1fr))` });
+            for (const l of x.pgm) g.append(el('i', { class: l.signal === 'off' ? 'off' : '', style: l.signal === 'off' ? 'color: var(--rcs-error)' : '' }, l.source));
+            c.append(g);
+          } else {
+            const src = el('div', { class: 'src' });
+            src.append(el('span', { class: 'b pgm' }, 'PGM'), srcLine(x.pgm), el('span', { class: 'b pvw' }, 'PVW'), srcLine(x.pvw));
+            c.append(src, canvas(x, x.pgm, 120, 340));
+          }
+          box.append(c);
+        }
+      }
+
+      function drawInputs() {
+        const box = $('view-inputs');
+        box.replaceChildren();
+        for (const i of s.switcher.inputs) {
+          const c = el('div', { class: 'in ' + i.signal });
+          const top = el('div', { class: 'top' });
+          top.append(el('span', { class: 'dot' }), el('span', { class: 'n' }, i.name), el('span', { class: 'f' }, i.format || i.signalText));
+          c.append(top);
+          const u = el('span', { class: 'u' });
+          if (i.onPgm.length) u.append(el('b', { style: 'color: var(--pgm)' }, 'PGM '), i.onPgm.join(', '), ' ');
+          if (i.onPvw.length) u.append(el('b', { style: 'color: var(--pvw)' }, 'PVW '), i.onPvw.join(', '));
+          if (!i.onPgm.length && !i.onPvw.length) u.append(el('span', { style: 'color: var(--rcs-muted)' }, 'Not in use'));
+          c.append(u);
+          box.append(c);
+        }
+      }
+
+      function drawSetup() {
+        $('allowControls').checked = s.allowControls;
+        const tf = $('transition');
+        if (!tf.hasAttribute('editing')) tf.setAttribute('value', String(s.transitionMs));
+        $('listHead').textContent = `SWITCHERS · ${s.entries.length} of 4`;
+        const list = $('swList');
+        list.replaceChildren();
+        if (!s.entries.length) list.append(el('div', { class: 'item' }, 'None yet'));
+        for (const e of s.entries) {
+          const x = s.switchers.find((y) => y.id === e.id);
+          const row = el('div', { class: 'item ' + (x?.reachable ? 'ok' : 'critical') });
+          const t = el('div', { class: 't' });
+          t.append(el('div', { class: 'n' }, x?.name || e.label || e.host), el('div', { class: 'd' }, `${x?.model || 'PixelHue'} · ${e.host}${e.port ? ':' + e.port : ''}${x?.reachable ? '' : x?.lastError ? ' · ' + x.lastError : ''}`));
+          row.append(el('span', { class: 'dot' }), t, button('Remove', 'danger', () => ask(`Remove ${x?.name || e.host} from this module? Nothing changes on the switcher.`, 'Remove', 'danger', () => rcs.send({ type: 'remove', id: e.id }))));
+          list.append(row);
+        }
+      }
+
+      $('emptySetup').onclick = () => rcs.send({ type: 'view', view: 'setup' });
+      $('toPvw').onclick = () => rcs.send({ type: 'target', target: 'pvw' });
+      $('toPgm').onclick = () => rcs.send({ type: 'target', target: 'pgm' });
+      $('take').onclick = () => rcs.send({ type: 'control', action: 'take' });
+      $('cut').onclick = () => rcs.send({ type: 'control', action: 'cut' });
+      $('address').addEventListener('change', (e) => {
+        if (e.detail) rcs.send({ type: 'add', host: e.detail });
+        $('address').setAttribute('value', '');
+      });
+      $('transition').addEventListener('change', (e) => rcs.send({ type: 'transition', ms: Number(e.detail) }));
+      $('allowControls').addEventListener('change', (e) =>
+        e.detail
+          ? ask('Allow commands to the switcher? Preset keys then load to preview (or to program after a second press), and TAKE and CUT go live.', 'Allow', 'danger', () => rcs.send({ type: 'allow', on: true }))
+          : rcs.send({ type: 'allow', on: false })
+      );
+      window.addEventListener('resize', draw);
+
+      await rcs.ready();
+      rcs.on('message', (m) => {
+        if (m?.type === 'snapshot') {
+          s = m;
+          draw();
+        }
+      });
+      rcs.send({ type: 'hello' });
+    </script>
+  </body>
+</html>

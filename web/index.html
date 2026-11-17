@@ -1,0 +1,344 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      body { padding: 24px; }
+      section { display: flex; flex-direction: column; gap: 16px; max-width: 1600px; }
+      header { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+      h2 { margin: 0; font-size: 22px; }
+      h3 { margin: 0; font-size: 15px; color: var(--rcs-muted); font-weight: 600; }
+      .grow { flex: 1; }
+      p, .note { margin: 0; color: var(--rcs-muted); font-size: 15px; line-height: 1.5; }
+      .card { border: 1px solid var(--rcs-border); border-radius: 14px; background: var(--rcs-surface); padding: 16px; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+      .row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+      .ok, .live { --sev: var(--rcs-ok); } .warning { --sev: var(--rcs-warn); } .critical, .off { --sev: var(--rcs-error); } .unknown { --sev: var(--rcs-muted); }
+      .pill { height: 28px; padding: 0 12px; border-radius: 14px; font: 700 13px var(--rcs-font); display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; max-width: 100%; overflow: hidden;
+        color: var(--sev); background: color-mix(in srgb, var(--sev) 12%, transparent); border: 1px solid color-mix(in srgb, var(--sev) 40%, transparent); }
+      .dot { display: inline-block; width: 9px; height: 9px; border-radius: 5px; background: var(--sev); flex: none; }
+      .badge { font: 600 12px var(--rcs-font); letter-spacing: 0.06em; padding: 3px 8px; border-radius: 6px; border: 1px solid currentColor; white-space: nowrap; color: var(--rcs-muted); }
+      .badge.sel { color: var(--rcs-accent); }
+      input[type=text], input[type=number], select { min-height: 44px; border-radius: 10px; border: 1px solid var(--rcs-border); background: var(--rcs-bg); color: var(--rcs-text);
+        padding: 0 12px; font: 16px var(--rcs-font); min-width: 0; box-sizing: border-box; }
+      input:focus, select:focus { outline: 2px solid var(--rcs-accent); border-color: transparent; }
+      label.f { display: flex; flex-direction: column; gap: 6px; font-size: 14px; color: var(--rcs-muted); }
+      table { width: 100%; border-collapse: collapse; }
+      th { text-align: left; font-size: 13px; font-weight: 600; color: var(--rcs-muted); padding: 8px; border-bottom: 1px solid var(--rcs-border); white-space: nowrap; }
+      td { padding: 7px 8px; border-bottom: 1px solid var(--rcs-border); font-size: 15px; vertical-align: middle; }
+      td.mono { font-family: var(--rcs-mono); color: var(--rcs-muted); white-space: nowrap; }
+      .scrollx { overflow-x: auto; }
+      :root { --pgm: #E5484D; --pvw: #30A46C; }
+
+      .sw { display: flex; gap: 8px; flex-wrap: wrap; }
+      .sw button { min-height: 40px; padding: 0 14px; border-radius: 10px; font: 600 14px var(--rcs-font); color: var(--rcs-text); background: var(--rcs-surface);
+        border: 1px solid var(--rcs-border); cursor: pointer; display: inline-flex; align-items: center; gap: 8px; }
+      .sw button[aria-pressed=true] { border-color: var(--rcs-accent); color: var(--rcs-accent); }
+      .big { min-height: 48px; min-width: 110px; padding: 0 22px; border-radius: 10px; font: 800 17px var(--rcs-font); letter-spacing: 0.08em; cursor: pointer;
+        border: 1px solid var(--rcs-border); background: var(--rcs-surface); color: var(--rcs-text); }
+      .big.take { background: var(--pgm); border-color: var(--pgm); color: #fff; }
+      .big:disabled { opacity: 0.4; cursor: default; }
+
+      /* PGM and PVW of every screen, side by side, to scale */
+      .buses { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(420px, 100%), 1fr)); gap: 16px; }
+      .bus h3 b { font-weight: 800; letter-spacing: 0.08em; }
+      .bus.pgm h3 b { color: var(--pgm); } .bus.pvw h3 b { color: var(--pvw); }
+      .screens { display: flex; gap: 10px; align-items: flex-end; }
+      @media (max-width: 640px) { .screens { flex-wrap: wrap; } .screens .scr { flex: 1 1 40% !important; } .screens .scr.wide { flex-basis: 100% !important; } }
+      .scr { display: flex; flex-direction: column; gap: 4px; min-width: 0; max-width: 100%; }
+      .scr .sn { font-size: 13px; font-weight: 600; color: var(--rcs-muted); }
+      .canvas { position: relative; width: 100%; box-sizing: border-box; background: #050607; border: 2px solid var(--rcs-border); border-radius: 4px; overflow: hidden; }
+      .bus.pgm .canvas { border-color: color-mix(in srgb, var(--pgm) 70%, transparent); } .bus.pvw .canvas { border-color: color-mix(in srgb, var(--pvw) 70%, transparent); }
+      .ly { position: absolute; box-sizing: border-box; border: 1px solid rgba(255,255,255,0.55); background: color-mix(in srgb, var(--hue) 55%, #111);
+        color: #fff; font: 600 12px var(--rcs-font); padding: 2px 5px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+      .ly.off { background: repeating-linear-gradient(45deg, #2a1414 0 6px, #1a0c0c 6px 12px); border-color: var(--rcs-error); color: #ffb4b0; }
+      .canvas .none { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #666; font-size: 12px; }
+
+      .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(200px, 100%), 1fr)); gap: 10px; }
+      .tile { border: 1px solid var(--rcs-border); border-radius: 12px; background: var(--rcs-surface); padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+      .tile .n { font-size: 17px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .tile .t { font: 700 11px var(--rcs-font); letter-spacing: 0.08em; color: var(--rcs-muted); display: flex; justify-content: space-between; }
+      .tile.pvw { background: color-mix(in srgb, var(--pvw) 25%, var(--rcs-surface)); border-color: var(--pvw); }
+      .tile.pgm, .tile.both { background: color-mix(in srgb, var(--pgm) 25%, var(--rcs-surface)); border-color: var(--pgm); }
+      .tile .acts { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+      .tile .acts rcs-button { min-width: 0; }
+
+      .outs { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(460px, 100%), 1fr)); gap: 16px; }
+      .src { display: grid; grid-template-columns: 48px 1fr; gap: 6px 12px; font-size: 15px; align-items: baseline; }
+      .src .b { font: 800 12px var(--rcs-font); letter-spacing: 0.08em; }
+      .src .b.pgm { color: var(--pgm); } .src .b.pvw { color: var(--pvw); }
+      .src .bad { color: var(--rcs-error); }
+      .mono { font-family: var(--rcs-mono); }
+      .mvr { display: grid; gap: 4px; }
+      .mvr i { font-style: normal; background: #0b0d10; border: 1px solid var(--rcs-border); border-radius: 4px; font-size: 13px; padding: 6px 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #ddd; }
+      .mvr i.off { color: var(--rcs-error); border-color: var(--rcs-error); }
+      .setup { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(340px, 100%), 1fr)); gap: 24px; align-items: start; }
+      .toggle { display: flex; align-items: center; gap: 14px; font-size: 16px; }
+    </style>
+  </head>
+  <body>
+    <header style="margin-bottom: 16px">
+      <span class="pill" id="state"><span class="dot"></span><span id="stateText"></span></span>
+      <div class="sw" id="swTabs"></div>
+    </header>
+
+    <section id="page-presets" hidden>
+      <header>
+        <h2>Preview and program</h2>
+        <span class="note" id="sub"></span>
+        <div class="grow"></div>
+        <button class="big" id="cut">CUT</button>
+        <button class="big take" id="take">TAKE</button>
+      </header>
+      <div class="buses">
+        <div class="card bus pgm"><h3><b>PROGRAM</b> <span id="pgmName"></span></h3><div class="screens" id="pgm"></div></div>
+        <div class="card bus pvw"><h3><b>PREVIEW</b> <span id="pvwName"></span></h3><div class="screens" id="pvw"></div></div>
+      </div>
+      <header><h2>Presets</h2><span class="note">Preview loads at once. Program asks first.</span></header>
+      <div class="grid" id="grid"></div>
+    </section>
+
+    <section id="page-outputs" hidden>
+      <div class="outs" id="outs"></div>
+    </section>
+
+    <section id="page-inputs" hidden>
+      <div class="card scrollx"><table><thead><tr><th>Input</th><th>Signal</th><th>Format</th><th>On program</th><th>On preview</th></tr></thead><tbody id="inputs"></tbody></table></div>
+    </section>
+
+    <section id="page-setup" hidden>
+      <div class="setup">
+        <div class="card">
+          <h3>Add a switcher</h3>
+          <label class="f">IP address or host name<input type="text" id="host" placeholder="192.168.0.10" /></label>
+          <label class="f">Discovery port (empty: 19998)<input type="number" id="port" min="1" max="65535" /></label>
+          <label class="f">Name (empty: the switcher's own)<input type="text" id="label" maxlength="40" /></label>
+          <rcs-button id="add" variant="primary">Add</rcs-button>
+        </div>
+        <div class="card">
+          <h3>Controls</h3>
+          <label class="toggle"><rcs-toggle id="allowControls" label="Allow controls"></rcs-toggle>Allow controls: load presets, Take and Cut</label>
+          <label class="f">Transition for Take and preset loads, ms (0: the switcher's own)<input type="number" id="transition" min="0" max="10000" step="100" /></label>
+          <p>Take and Cut act on the screens selected on the switcher. Loading a preset selects its screens.</p>
+        </div>
+      </div>
+      <div class="card scrollx"><table><thead><tr><th>Switcher</th><th>Address</th><th>Model</th><th>Serial</th><th>Name shown</th><th></th></tr></thead><tbody id="list"></tbody></table></div>
+      <p>Named saves hold the switcher list, Allow controls and the transition time, nothing read from a switcher. Restoring one never sends anything. The switcher's API takes no login, so there is nothing secret to save.</p>
+    </section>
+
+    <rcs-dialog id="confirm">
+      <span id="confirmText"></span>
+      <div slot="buttons">
+        <rcs-button id="no">Cancel</rcs-button>
+        <rcs-button id="yes" variant="danger">OK</rcs-button>
+      </div>
+    </rcs-dialog>
+
+    <script type="module">
+      const $ = (id) => document.getElementById(id);
+      const PAGES = ['presets', 'outputs', 'inputs', 'setup'];
+      const HUES = ['#3E63DD', '#8E4EC6', '#12A594', '#D6409F', '#F76B15', '#0090FF', '#46A758', '#E54666', '#AB4ABA', '#FFC53D'];
+      let s = null;
+      let page = 'presets';
+      let onYes = null;
+
+      function el(tag, attrs = {}, text) {
+        const e = document.createElement(tag);
+        for (const [k, v] of Object.entries(attrs)) {
+          if (v === true) e.setAttribute(k, '');
+          else if (v !== false && v != null) e.setAttribute(k, String(v));
+        }
+        if (text != null) e.textContent = text;
+        return e;
+      }
+      const button = (text, variant, fn, disabled) => {
+        const b = el('rcs-button', { size: 'small', variant, disabled: !!disabled }, text);
+        b.addEventListener('click', (e) => { e.stopPropagation(); if (!disabled) fn(); });
+        return b;
+      };
+      function ask(text, ok, variant, fn) {
+        $('confirmText').textContent = text;
+        $('yes').textContent = ok;
+        $('yes').setAttribute('variant', variant);
+        onYes = fn;
+        $('confirm').show();
+      }
+      $('no').onclick = () => { $('confirm').close(); if (s) $('allowControls').checked = s.allowControls; };
+      $('yes').onclick = () => { $('confirm').close(); onYes?.(); };
+      const tr = (...cells) => { const r = el('tr'); r.append(...cells); return r; };
+      const td = (text, cls) => el('td', cls ? { class: cls } : {}, text);
+      const hue = (l) => HUES[(l.inputId ?? l.sourceType + 7) % HUES.length];
+      const control = (action, extra, text) =>
+        ask(`${text} on ${s.switcher.name}?`, 'Send', 'danger', () => rcs.send({ type: 'control', id: s.current, action, ...extra, from: 'web' }));
+
+      /** One screen to scale (CSS sizes it to its box), its layers as boxes named by their source. */
+      function canvas(scr, layers) {
+        const c = el('div', { class: 'canvas', style: `aspect-ratio: ${scr.width} / ${scr.height}` });
+        if (!layers.length) c.append(el('div', { class: 'none' }, 'empty'));
+        const pc = (v, of) => `${(v / of) * 100}%`;
+        for (const l of layers) c.append(el('div', { class: 'ly' + (l.signal === 'off' ? ' off' : ''), title: `${l.source} · ${l.w}×${l.h} at ${l.x}, ${l.y}`,
+          style: `left: ${pc(l.x, scr.width)}; top: ${pc(l.y, scr.height)}; width: ${pc(l.w, scr.width)}; height: ${pc(l.h, scr.height)}; --hue: ${hue(l)}` }, l.source));
+        return c;
+      }
+
+      function show(p) {
+        page = PAGES.includes(p) ? p : 'presets';
+        for (const x of PAGES) $('page-' + x).hidden = x !== page;
+        draw();
+      }
+
+      function draw() {
+        if (!s) return;
+        const sw = s.switcher;
+        const st = !sw ? 'unknown' : sw.reachable ? 'ok' : sw.read ? 'critical' : 'unknown';
+        $('state').className = 'pill ' + st;
+        $('stateText').textContent = !sw ? 'No switcher: add one in Setup' : sw.reachable ? `${sw.name}${sw.model ? ' · ' + sw.model : ''} · ${sw.host}` : `${sw.name} · ${sw.lastError || 'connecting'}`;
+        const tabs = $('swTabs');
+        tabs.replaceChildren();
+        if (s.switchers.length > 1) for (const x of s.switchers) {
+          const b = el('button', { 'aria-pressed': x.id === s.current, class: x.reachable ? 'ok' : 'critical' });
+          b.append(el('span', { class: 'dot' }), x.name);
+          b.onclick = () => rcs.send({ type: 'select', id: x.id });
+          tabs.append(b);
+        }
+        if (page === 'setup') return drawSetup();
+        if (!sw?.read) {
+          for (const id of ['grid', 'pgm', 'pvw', 'outs', 'inputs']) $(id).replaceChildren();
+          return;
+        }
+        ({ presets: drawPresets, outputs: drawOutputs, inputs: drawInputs })[page]();
+      }
+
+      function drawPresets() {
+        const sw = s.switcher;
+        const live = sw.reachable && s.allowControls;
+        $('take').disabled = $('cut').disabled = !live || !s.takeScreens.length || s.busy;
+        $('sub').textContent = !s.allowControls ? 'Read only: turn on Allow controls in Setup' : s.takeScreens.length ? `Take and Cut: ${s.takeScreens.join(', ')}` : 'No screen selected on the switcher';
+        $('pgmName').textContent = sw.presets.filter((p) => p.region === 'pgm' || p.region === 'both').map((p) => p.name).join(', ');
+        $('pvwName').textContent = sw.presets.filter((p) => p.region === 'pvw' || p.region === 'both').map((p) => p.name).join(', ');
+        const screens = sw.screens.filter((x) => x.kind !== 'mvr');
+        for (const bus of ['pgm', 'pvw']) {
+          const box = $(bus);
+          box.replaceChildren();
+          // Every screen in one row at the same scale: each takes width in proportion to its aspect ratio.
+          for (const x of screens) {
+            const d = el('div', { class: 'scr' + (x.width > x.height * 2 ? ' wide' : ''), style: `flex: ${x.width / x.height} 1 0` });
+            d.append(el('span', { class: 'sn' }, `${x.name}${x.kind === 'aux' ? ' (AUX)' : ''}${x.selected ? ' · selected' : ''}`), canvas(x, x[bus]));
+            box.append(d);
+          }
+        }
+        const g = $('grid');
+        g.replaceChildren();
+        for (const p of sw.presets) {
+          const t = el('div', { class: 'tile ' + p.region });
+          const tag = el('span', { class: 't' });
+          tag.append(el('span', {}, `PRESET ${p.serial}`), el('span', {}, p.region === 'both' ? 'PGM + PVW' : p.region.toUpperCase()));
+          const acts = el('div', { class: 'acts' });
+          acts.append(
+            button('PVW', 'primary', () => rcs.send({ type: 'control', id: s.current, action: 'preset', guid: p.guid, target: 'pvw', from: 'web' }), !live),
+            button('PGM', 'danger', () => control('preset', { guid: p.guid, target: 'pgm' }, `Load ${p.name} straight to PROGRAM`), !live)
+          );
+          t.append(el('span', { class: 'n', title: p.name }, p.name), tag, acts);
+          g.append(t);
+        }
+        if (!sw.presets.length) g.append(el('p', {}, 'The switcher has no presets.'));
+      }
+
+      function srcLine(layers) {
+        const v = el('span');
+        if (!layers.length) v.textContent = '–';
+        layers.forEach((l, i) => {
+          if (i) v.append(', ');
+          v.append(el('span', { class: l.signal === 'off' ? 'bad' : '', title: l.signal === 'off' ? 'No signal' : '' }, l.source + (l.signal === 'off' ? ' (no signal)' : '')));
+        });
+        return v;
+      }
+
+      function drawOutputs() {
+        const box = $('outs');
+        box.replaceChildren();
+        for (const x of s.switcher.screens) {
+          const c = el('div', { class: 'card' });
+          const top = el('div', { class: 'row' });
+          top.append(el('h2', {}, x.name), el('span', { class: 'badge' }, { main: 'SCREEN', aux: 'AUX', mvr: 'MULTIVIEW' }[x.kind]));
+          if (x.selected) top.append(el('span', { class: 'badge sel' }, 'SELECTED'));
+          if (x.freeze) top.append(el('span', { class: 'badge' }, 'FROZEN'));
+          if (x.ftb) top.append(el('span', { class: 'badge sel' }, 'FADED TO BLACK'));
+          c.append(top, el('p', { class: 'mono' }, `${x.width}×${x.height}${x.outputs.length ? ' · outputs ' + x.outputs.join(', ') : ''}`));
+          if (x.kind === 'mvr') {
+            const cols = Math.min(4, Math.ceil(Math.sqrt(x.pgm.length || 1)));
+            const g = el('div', { class: 'mvr', style: `grid-template-columns: repeat(${cols}, minmax(0, 1fr))` });
+            for (const l of x.pgm) g.append(el('i', { class: l.signal === 'off' ? 'off' : '' }, l.source));
+            c.append(g);
+          } else {
+            const src = el('div', { class: 'src' });
+            src.append(el('span', { class: 'b pgm' }, 'PGM'), srcLine(x.pgm), el('span', { class: 'b pvw' }, 'PVW'), srcLine(x.pvw));
+            const cv = el('div', { class: 'bus pgm' });
+            cv.append(canvas(x, x.pgm));
+            cv.style.maxWidth = `${Math.round((160 * x.width) / x.height)}px`;
+            c.append(src, cv);
+          }
+          box.append(c);
+        }
+      }
+
+      function drawInputs() {
+        const body = $('inputs');
+        body.replaceChildren();
+        for (const i of s.switcher.inputs) {
+          const sig = el('td');
+          const p = el('span', { class: 'pill ' + i.signal });
+          p.append(el('span', { class: 'dot' }), i.signalText);
+          sig.append(p);
+          body.append(tr(td(i.name), sig, td(i.format || '–', 'mono'), td(i.onPgm.join(', ') || '–'), td(i.onPvw.join(', ') || '–')));
+        }
+      }
+
+      function drawSetup() {
+        $('allowControls').checked = s.allowControls;
+        if (document.activeElement !== $('transition')) $('transition').value = String(s.transitionMs);
+        const body = $('list');
+        if (body.contains(document.activeElement)) return; // keep a name being typed
+        body.replaceChildren();
+        if (!s.entries.length) body.append(tr(el('td', { colspan: 6 }, 'None yet')));
+        for (const e of s.entries) {
+          const x = s.switchers.find((y) => y.id === e.id);
+          const st = el('td');
+          const p = el('span', { class: 'pill ' + (x?.reachable ? 'ok' : x?.read ? 'critical' : 'unknown') });
+          p.append(el('span', { class: 'dot' }), x?.reachable ? x.name : x?.lastError || 'Connecting');
+          st.append(p);
+          const name = el('input', { type: 'text', value: e.label, placeholder: 'the switcher’s own', maxlength: 40 });
+          name.onchange = () => rcs.send({ type: 'edit', id: e.id, label: name.value });
+          const nt = el('td');
+          nt.append(name);
+          const rm = el('td');
+          rm.append(button('Remove', 'danger', () => ask(`Remove ${x?.name || e.host} from this module? Nothing changes on the switcher.`, 'Remove', 'danger', () => rcs.send({ type: 'remove', id: e.id }))));
+          body.append(tr(st, td(`${e.host}${e.port ? ':' + e.port : ''}`, 'mono'), td(x?.model || '–'), td(x?.serial || '–', 'mono'), nt, rm));
+        }
+      }
+
+      $('take').onclick = () => control('take', {}, `Take ${s.takeScreens.join(', ')} to program`);
+      $('cut').onclick = () => control('cut', {}, `Cut ${s.takeScreens.join(', ')} to program`);
+      $('add').onclick = () => {
+        rcs.send({ type: 'add', host: $('host').value.trim(), port: $('port').value ? Number($('port').value) : 0, label: $('label').value });
+        $('host').value = $('port').value = $('label').value = '';
+      };
+      $('transition').onchange = () => rcs.send({ type: 'transition', ms: Number($('transition').value || 0) });
+      $('allowControls').addEventListener('change', (e) =>
+        e.detail
+          ? ask('Allow commands to the switcher? The panel keys and this page can then load presets and Take or Cut to program.', 'Allow', 'danger', () => rcs.send({ type: 'allow', on: true }))
+          : rcs.send({ type: 'allow', on: false })
+      );
+
+      const info = await rcs.ready();
+      rcs.on('page', show);
+      rcs.on('message', (m) => {
+        if (m?.type === 'snapshot') {
+          s = m;
+          draw();
+        }
+      });
+      show(info.page);
+      rcs.send({ type: 'hello' });
+    </script>
+  </body>
+</html>

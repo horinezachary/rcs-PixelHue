@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "switchers": {
+      "type": "array",
+      "maxItems": 4,
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "pattern": "^[0-9a-f]{8}$" },
+          "host": { "type": "string", "minLength": 1, "maxLength": 253 },
+          "port": { "type": "integer", "minimum": 0, "maximum": 65535, "description": "Discovery (ucenter) port. 0: 19998" },
+          "label": { "type": "string", "maxLength": 40 }
+        },
+        "required": ["id", "host"],
+        "additionalProperties": false
+      }
+    },
+    "allowControls": { "type": "boolean" },
+    "transitionMs": { "type": "integer", "minimum": 0, "maximum": 10000 }
+  },
+  "additionalProperties": false
+}
