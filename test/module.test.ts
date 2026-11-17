@@ -262,3 +262,53 @@ describe('setup', () => {
     expect(q.writes).toEqual([]);
   });
 });
+
+describe('live video', () => {
+  const videoFor = (clientId: string) => sim!.uiMessages.filter((m) => m.message?.type === 'video' && m.clientId === clientId).map((m) => m.message);
+
+  it('relays the input preview only while someone asks for it, and only reads', async () => {
+    const { q, port } = await q8();
+    await start([entry('00000001', port)], { allow: true });
+    expect(last().video).toBe(true);
+    expect(last().switcher.echo[0]).toMatchObject({ index: 0, path: '/flv1', width: 1280, height: 720 });
+    expect(last().switcher.echo[0].tiles[0]).toEqual({ inputId: 1, x: 0, y: 0, w: 320, h: 180 });
+    expect(q.echoViewers).toBe(0); // nothing pulled until a canvas asks
+
+    await sim!.connectClient('web-1');
+    await sim!.sendUi({ type: 'video', sw: '00000001', streams: [0, 7] }, 'web-1');
+    await until(() => videoFor('web-1').filter((m) => m.kind === 'seg').length >= 3, 5000, 'for video');
+    const got = videoFor('web-1');
+    expect(got[0]).toMatchObject({ kind: 'init', sw: '00000001', stream: 0, part: 0 });
+    expect(got[0].mime).toMatch(/^video\/mp4; codecs="avc1\./);
+    expect(got.find((m) => m.kind === 'seg')).toMatchObject({ key: true }); // a viewer starts on a keyframe
+    for (const m of got) expect(JSON.stringify(m).length).toBeLessThan(64 * 1024);
+    expect(q.echoViewers).toBe(1);
+
+    // A second viewer shares the one stream from the switcher, and starts from the last keyframe.
+    await sim!.connectClient('panel-2');
+    await sim!.sendUi({ type: 'video', sw: '00000001', streams: [0] }, 'panel-2');
+    await until(() => videoFor('panel-2').some((m) => m.kind === 'seg'), 3000, 'for the second viewer');
+    expect(videoFor('panel-2')[0].kind).toBe('init');
+    expect(videoFor('panel-2').find((m) => m.kind === 'seg').key).toBe(true);
+    expect(q.echoViewers).toBe(1);
+
+    // Both gone: the stream stops.
+    await sim!.sendUi({ type: 'video', sw: '00000001', streams: [] }, 'panel-2');
+    await sim!.disconnectClient('web-1');
+    await until(() => q.echoViewers === 0, 3000, 'for the stream to stop');
+    expect(q.writes).toEqual([]);
+  });
+
+  it('pulls nothing with Live video off', async () => {
+    const { q, port } = await q8();
+    await start([entry('00000001', port)]);
+    await sim!.sendUi({ type: 'video-setting', on: false });
+    await sim!.settle();
+    expect(sim!.config.video).toBe(false);
+    expect(last().video).toBe(false);
+    await sim!.sendUi({ type: 'video', sw: '00000001', streams: [0] }, 'web-1');
+    await new Promise((r) => setTimeout(r, 500));
+    expect(q.echoViewers).toBe(0);
+    expect(videoFor('web-1')).toEqual([]);
+  });
+});

@@ -7,10 +7,14 @@
 //   GET /sim/signal?input=<interfaceId>&state=<0|1>   unplug or plug an input
 //   GET /sim/restart                                   new start time, so old tokens stop working
 //   GET /sim/select?screen=<screenId>&on=<0|1>         select a screen as the front panel would
+//
+// Input preview, as a real Q8: GET layers/echo lists the streams and where each input sits in them, and
+// GET /flv1 (no token) is a live HTTP-FLV stream, looped from sim/echo.flv (scripts/make-sim-video.mjs).
 
 import { randomUUID } from 'node:crypto';
 import http from 'node:http';
 import https from 'node:https';
+import { readFileSync } from 'node:fs';
 import type { AddressInfo } from 'node:net';
 import { makeToken } from '../q8/client.js';
 import { SIM_CERT, SIM_KEY } from './cert.js';
@@ -163,6 +167,59 @@ export class Q8Simulator {
     this.api = this.discovery = null;
   }
 
+  // ---- input preview ----------------------------------------------------------------------------
+
+  /** Viewers of /flv1 now. */
+  echoViewers = 0;
+
+  private echoList() {
+    const tile = (i: number) => ({
+      window: { width: 320, height: 180, x: Math.floor(i / 4) * 320, y: (i % 4) * 180 },
+      source: { sourceType: 2, sourceId: this.inputs[i]!.id, relationId: 0, osd: { componentId: '', componentType: 0 }, ipcLayout: [], cropInfo: { needCrop: 0, windows: null } },
+      type: 0,
+      screenIndex: 0
+    });
+    return [
+      { index: 0, type: 2, url: '/flv1', frame: 20, width: 1280, height: 720, urlType: 0, echoLayout: this.inputs.map((_, i) => tile(i)) },
+      { index: 1, type: 2, url: '/flv2', frame: 20, width: 1280, height: 720, urlType: 0, echoLayout: [] }
+    ];
+  }
+
+  /** The looped FLV, sent at its own pace with timestamps that keep rising, as a live stream. */
+  private streamEcho(res: http.ServerResponse): void {
+    const flv = echoFile();
+    if (!flv) return send(res, 404, { code: 404, message: 'no sim/echo.flv' });
+    res.writeHead(200, { 'Content-Type': 'video/x-flv', 'Access-Control-Allow-Origin': '*', 'Cache-Control': 'no-cache' });
+    res.write(flv.header);
+    res.write(flv.config);
+    this.echoViewers++;
+    let i = 0;
+    let loop = 0;
+    const start = Date.now();
+    let timer: NodeJS.Timeout | null = null;
+    const next = () => {
+      if (res.destroyed) return;
+      const t = flv.tags[i]!;
+      const ts = loop * flv.length + t.ts;
+      const wait = start + ts - Date.now();
+      if (wait > 5) {
+        timer = setTimeout(next, wait);
+        return;
+      }
+      res.write(withTimestamp(t.data, ts));
+      if (++i === flv.tags.length) {
+        i = 0;
+        loop++;
+      }
+      setImmediate(next);
+    };
+    res.on('close', () => {
+      this.echoViewers--;
+      if (timer) clearTimeout(timer);
+    });
+    next();
+  }
+
   // ---- behaviour --------------------------------------------------------------------------------
 
   private load(p: SimPreset, region: 2 | 4): void {
@@ -299,6 +356,7 @@ export class Q8Simulator {
     const url = new URL(req.url ?? '/', 'http://sim');
     const path = url.pathname;
     if (path.startsWith('/sim/')) return this.handleSim(path, url, res);
+    if (req.method === 'GET' && path === '/flv1') return this.streamEcho(res);
     if (req.method === 'GET' && path === '/unico/v1/node/open-detail') return send(res, 200, ok({ sn: this.serial, startTime: this.startTime }));
     if (req.headers.authorization !== this.token()) {
       this.unauthorized++;
@@ -323,6 +381,10 @@ export class Q8Simulator {
           return send(res, 200, ok({ list: this.presetList(), totalCount: this.presets.length }));
         case 'GET interface/list-detail':
           return send(res, 200, ok({ list: this.interfaceList() }));
+        case 'GET layers/echo':
+          return send(res, 200, { code: 0, message: 'ok', data: this.echoList() });
+        case 'GET layers/echo/status':
+          return send(res, 200, ok({ nodeId: 1, status: 1 }));
       }
       if (req.method === 'GET') return send(res, 200, { code: 404, message: `unknown ${path}`, data: {} });
       this.writes.push({ path: route, body });
@@ -373,4 +435,48 @@ function send(res: http.ServerResponse, status: number, body: unknown): void {
   const text = JSON.stringify(body);
   res.writeHead(status, { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(text) });
   res.end(text);
+}
+
+// ---- the looped preview file --------------------------------------------------------------------
+
+interface EchoFile {
+  header: Buffer;
+  /** The AVC sequence header tag (with its PreviousTagSize). */
+  config: Buffer;
+  /** Video frame tags (each with its PreviousTagSize) and their timestamps, ms. */
+  tags: { ts: number; data: Buffer }[];
+  /** One loop, ms. */
+  length: number;
+}
+
+let echoCache: EchoFile | null | undefined;
+
+function echoFile(): EchoFile | null {
+  if (echoCache !== undefined) return echoCache;
+  try {
+    const b = readFileSync(new URL('../../sim/echo.flv', import.meta.url));
+    const headerEnd = b.readUInt32BE(5) + 4;
+    const out: EchoFile = { header: b.subarray(0, headerEnd), config: Buffer.alloc(0), tags: [], length: 0 };
+    for (let at = headerEnd; at + 11 <= b.length; ) {
+      const size = b.readUIntBE(at + 1, 3);
+      const data = b.subarray(at, at + 11 + size + 4);
+      const ts = b.readUIntBE(at + 4, 3);
+      if (b[at] === 9 && b[at + 12] === 0) out.config = data;
+      else if (b[at] === 9) out.tags.push({ ts, data });
+      at += 11 + size + 4;
+    }
+    const last = out.tags[out.tags.length - 1]?.ts ?? 0;
+    out.length = last + (out.tags.length > 1 ? last / (out.tags.length - 1) : 200);
+    echoCache = out.tags.length && out.config.length ? out : null;
+  } catch {
+    echoCache = null;
+  }
+  return echoCache;
+}
+
+function withTimestamp(tag: Buffer, ts: number): Buffer {
+  const t = Buffer.from(tag);
+  t.writeUIntBE(ts & 0xffffff, 4, 3);
+  t[7] = (ts >>> 24) & 0xff;
+  return t;
 }

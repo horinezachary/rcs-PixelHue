@@ -3,7 +3,7 @@
 
 import { EventEmitter } from 'node:events';
 import { MODELS, Q8Client, Q8Error } from './q8/client.js';
-import { cutBody, inputsOf, presetApplyBody, presetsOf, screensOf, takeBody, type InputView, type PresetView, type ScreenView } from './q8/model.js';
+import { cutBody, echoOf, inputsOf, presetApplyBody, presetsOf, screensOf, takeBody, type EchoStream, type InputView, type PresetView, type ScreenView } from './q8/model.js';
 
 export interface SwitcherEntry {
   id: string;
@@ -28,6 +28,8 @@ export interface SwitcherView {
   screens: ScreenView[];
   presets: PresetView[];
   inputs: InputView[];
+  /** The switcher's input preview streams, where it has them. */
+  echo: EchoStream[];
 }
 
 export type Command =
@@ -47,6 +49,7 @@ export class Switcher extends EventEmitter {
   private stopped = false;
   private count = 0;
   private rawInterfaces: unknown = null;
+  private echo: EchoStream[] = [];
   private sinceLastOk = 0;
   view: SwitcherView;
 
@@ -57,7 +60,7 @@ export class Switcher extends EventEmitter {
   ) {
     super();
     this.client = new Q8Client(entry.host, entry.port || undefined, timeoutMs);
-    this.view = { id: entry.id, host: entry.host, name: entry.label || entry.host, model: '', serial: '', reachable: false, read: false, lastError: '', lastSeen: 0, screens: [], presets: [], inputs: [] };
+    this.view = { id: entry.id, host: entry.host, name: entry.label || entry.host, model: '', serial: '', reachable: false, read: false, lastError: '', lastSeen: 0, screens: [], presets: [], inputs: [], echo: [] };
   }
 
   start(): void {
@@ -88,6 +91,9 @@ export class Switcher extends EventEmitter {
       ]);
       if (this.stopped) return;
       this.rawInterfaces = interfaces;
+      // The preview stream layout changes only when someone rearranges it, so read it with the interfaces.
+      // Not every model has it: leave it empty then.
+      if (wantInterfaces) this.echo = await c.get('layers/echo').then(echoOf, () => []);
       this.count++;
       this.sinceLastOk = 0;
       const inputs = inputsOf(interfaces);
@@ -103,7 +109,8 @@ export class Switcher extends EventEmitter {
         lastSeen: Date.now(),
         screens: screensOf(screens, layers, interfaces, inputs),
         presets: presetsOf(presets),
-        inputs
+        inputs,
+        echo: this.echo
       };
       const changed = JSON.stringify({ ...next, lastSeen: 0 }) !== JSON.stringify({ ...this.view, lastSeen: 0 });
       this.view = next;

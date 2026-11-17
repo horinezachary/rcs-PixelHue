@@ -19,7 +19,9 @@ export const MODELS: Record<number, string> = { 29974: 'Q8', 28944: 'P20', 28945
 export class Q8Error extends Error {
   constructor(
     message: string,
-    readonly code?: number
+    readonly code?: number,
+    /** The HTTP status, when the switcher answered with an error status. */
+    readonly status?: number
   ) {
     super(message);
   }
@@ -82,7 +84,7 @@ function request<T>(host: string, port: number, path: string, o: RequestOptions)
         res.on('data', (c: Buffer) => chunks.push(c));
         res.on('end', () => {
           const text = Buffer.concat(chunks).toString('utf8');
-          if ((res.statusCode ?? 0) >= 400) return reject(new Q8Error(`HTTP ${res.statusCode} from ${path.replace('/unico/v1/', '')}`));
+          if ((res.statusCode ?? 0) >= 400) return reject(new Q8Error(`HTTP ${res.statusCode} from ${path.replace('/unico/v1/', '')}`, undefined, res.statusCode));
           let json: any;
           try {
             json = JSON.parse(text);
@@ -137,8 +139,9 @@ export class Q8Client {
     try {
       return await request<T>(this.host, s.apiPort, `/unico/v1/${path}`, { method, body, token: s.token, timeoutMs: this.timeoutMs });
     } catch (e) {
-      // A restarted switcher has a new token and maybe a new port: start over on the next call.
-      this.session = null;
+      // A restarted switcher has a new token and maybe a new port: start over on the next call. A path this
+      // model doesn't have (404) says nothing about the session.
+      if (!(e instanceof Q8Error && e.status === 404)) this.session = null;
       throw e;
     }
   }

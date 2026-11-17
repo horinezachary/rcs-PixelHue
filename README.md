@@ -5,7 +5,8 @@ switcher: recall presets to preview from the Stream Deck, Take or Cut them to pr
 every screen, AUX and multiviewer window. The P10, P20 and P80 speak the same Open API and should work too, but
 only the Q8 shape has been tested (against the simulator here).
 
-- **Presets**: program and preview of every screen, drawn to scale with each layer named by its source, and the
+- **Presets**: program and preview of every screen, drawn to scale with each layer named by its source and live
+  video where the switcher has it, and the
   preset list with its tally (green on preview, red on program). Tap a preset to load it, then TAKE or CUT.
 - **Outputs**: every screen and AUX with its physical output connectors and the sources on program and preview,
   and the multiviewer windows. A source with no signal shows red.
@@ -48,15 +49,22 @@ From the PixelFlow OpenAPI manual V2.0.1 and PixelHue's own Companion module
 | | |
 | --- | --- |
 | Connect | `GET https://<ip>:19998/unico/v1/ucenter/device-list` (self-signed certificate) for the API port, then `GET http://<ip>:<port>/unico/v1/node/open-detail`. Requests carry an HS256 JWT of `{"SN": serial}` signed with the start time. |
-| Reads (every second) | `screen/list-detail`, `layers/list-detail`, `preset`; `interface/list-detail` every 5 s |
+| Reads (every second) | `screen/list-detail`, `layers/list-detail`, `preset`; `interface/list-detail` and `layers/echo` every 5 s; `/flvN` while someone watches |
 | Commands | `POST preset/apply` (targetRegion 4 preview, 2 program), `PUT screen/take`, `PUT screen/cut` |
 
-## Video previews
+## Live video
 
-The PixelFlow OpenAPI has no video or thumbnail of a canvas or the multiviewer. PixelFlow itself has an
-undocumented "echo" preview (`layers/echo`, gated by the device's `echovideo` capability) whose data format is not
-published, so the module draws each canvas from its layer positions instead. Seeing real pictures needs either
-that echo format worked out on a real Q8 (reads only) or the multiviewer output captured by another device.
+A Q8 streams a live preview of its inputs that PixelFlow plays but the Open API manual doesn't describe:
+`GET layers/echo` lists the streams and where each input sits in them (a 4×4 grid of 960×540 tiles in a 3840×2160
+picture), and `GET http://<ip>:<api port>/flv1` (no token) is that picture as HTTP-FLV, H.264 Baseline at about
+5 fps and 2 Mbit/s. The module pulls a stream only while a panel or web view showing canvases asks for it, and
+repackages it as fragmented MP4 for the browser's Media Source Extensions, so every viewer shares one stream from
+the switcher and a web viewer needn't reach the switcher's network. Each canvas is then painted from it: every
+layer gets its input's tile, scaled to the layer's place on the screen, and a multiviewer window showing a screen's
+PGM or PVW gets that screen. It is a picture of the inputs placed where the layers are, not the switcher's output:
+crops, effects and transitions don't show. Layers with no input in the stream keep their plain boxes.
+
+Setup has a Live video switch (on by default); it is a read either way.
 
 ## Development
 
@@ -68,7 +76,8 @@ npm run dev                      # the panel simulator with this module; add 127
 ```
 
 The simulator (`src/sim/q8.ts`) has 12 inputs, an LED wall, two IMAG screens, an AUX, a multiviewer and 12 presets,
-and acts on preset loads, Take and Cut. `curl 'http://127.0.0.1:<api port>/sim/signal?input=1&state=0'` unplugs an
+and acts on preset loads, Take and Cut. Its `/flv1` loops `sim/echo.flv` (made by `scripts/make-sim-video.mjs`).
+`npx -y tsx scripts/read-check.ts <ip>` reads a real switcher once (GETs only) and prints what the module would show. `curl 'http://127.0.0.1:<api port>/sim/signal?input=1&state=0'` unplugs an
 input; `/sim/select?screen=1&on=1` selects a screen as the front panel would; `/sim/restart` changes the token.
 
 Releases: every merge to master is a signed release (see `.github/workflows/release.yml`). The repo needs the

@@ -1,5 +1,6 @@
 {
   "switchers": [],
   "allowControls": false,
-  "transitionMs": 0
+  "transitionMs": 0,
+  "video": true
 }

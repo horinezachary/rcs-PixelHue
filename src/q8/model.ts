@@ -256,3 +256,46 @@ export function takeBody(screens: ScreenView[], transitionMs: number) {
 export function cutBody(screens: ScreenView[]) {
   return screens.map((s) => ({ direction: 0, screenId: s.id, swapEnable: 1 }));
 }
+
+// ---- input preview streams (layers/echo) ---------------------------------------------------------
+
+/** Where one input sits in a preview stream's picture. */
+export interface EchoTile {
+  inputId: number;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/**
+ * One of the switcher's input preview streams: a live HTTP-FLV picture (H.264, about 5 fps on a Q8) of up to
+ * 16 inputs in a grid. Not in the published API; PixelFlow plays them.
+ */
+export interface EchoStream {
+  index: number;
+  /** Path on the API port, as /flv1. */
+  path: string;
+  width: number;
+  height: number;
+  tiles: EchoTile[];
+}
+
+/** layers/echo: only streams that show at least one input. */
+export function echoOf(raw: unknown): EchoStream[] {
+  const out: EchoStream[] = [];
+  for (const s of list(raw)) {
+    const path = str(s?.url);
+    // A plain path on the API port; anything else (another host or port) the module doesn't follow.
+    if (!/^\/[A-Za-z0-9_-]{1,32}$/.test(path)) continue;
+    const tiles: EchoTile[] = [];
+    for (const t of Array.isArray(s.echoLayout) ? s.echoLayout : []) {
+      if (num(t?.source?.sourceType) !== 2 || t?.source?.cropInfo?.needCrop === 1) continue;
+      const w = num(t.window?.width);
+      const h = num(t.window?.height);
+      if (w > 0 && h > 0) tiles.push({ inputId: num(t.source.sourceId), x: num(t.window.x), y: num(t.window.y), w, h });
+    }
+    if (tiles.length) out.push({ index: num(s.index, out.length), path, width: num(s.width) || 3840, height: num(s.height) || 2160, tiles });
+  }
+  return out;
+}

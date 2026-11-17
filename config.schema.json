@@ -18,7 +18,8 @@
       }
     },
     "allowControls": { "type": "boolean" },
-    "transitionMs": { "type": "integer", "minimum": 0, "maximum": 10000 }
+    "transitionMs": { "type": "integer", "minimum": 0, "maximum": 10000 },
+    "video": { "type": "boolean", "description": "Draw canvases from the switcher's live input preview, where it has one" }
   },
   "additionalProperties": false
 }
