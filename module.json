@@ -1,0 +1,21 @@
+{
+  "id": "pixelhue",
+  "name": "PixelHue Switcher",
+  "version": "0.1.0",
+  "description": "PixelHue Q8 presets to preview and take, and what is on every output",
+  "icon": "assets/icon.svg",
+  "apiVersion": 1,
+  "entry": "dist/index.js",
+  "ui": "ui",
+  "configSchema": "config.schema.json",
+  "defaults": "config.defaults.json",
+  "web": {
+    "ui": "web",
+    "pages": [
+      { "id": "presets", "label": "Presets" },
+      { "id": "outputs", "label": "Outputs" },
+      { "id": "inputs", "label": "Inputs" },
+      { "id": "setup", "label": "Setup" }
+    ]
+  }
+}
