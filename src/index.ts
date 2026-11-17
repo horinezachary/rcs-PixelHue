@@ -20,6 +20,7 @@
 import { randomBytes } from 'node:crypto';
 import { defineModule, type Ctx, type KeySetParams } from '@rcs/module-sdk';
 import type { PresetView } from './q8/model.js';
+import { VideoHub, type Source } from './video/hub.js';
 import { CommandError, Switcher, type Command, type SwitcherEntry, type SwitcherView } from './switcher.js';
 
 export interface State {
@@ -35,6 +36,8 @@ export interface Config {
   allowControls: boolean;
   /** Transition time for Take and preset loads, ms. 0: the switcher's own. */
   transitionMs: number;
+  /** Draw canvases from the switcher's live input preview (a read: the module only pulls it while someone watches). */
+  video: boolean;
 }
 
 type C = Ctx<State, Config>;
@@ -68,6 +71,7 @@ interface Runtime {
   armed: Armed | null;
   busy: boolean;
   drawTimer: NodeJS.Timeout | null;
+  video: VideoHub;
 }
 let rt: Runtime | null = null;
 
@@ -86,7 +90,8 @@ export function cfg(ctx: C): Config {
   return {
     switchers: Array.isArray(c.switchers) ? c.switchers.map(cleanEntry).filter((e): e is SwitcherEntry => !!e).slice(0, MAX_SWITCHERS) : [],
     allowControls: c.allowControls ?? false,
-    transitionMs: Number.isInteger(t) && t >= 0 && t <= 10000 ? t : 0
+    transitionMs: Number.isInteger(t) && t >= 0 && t <= 10000 ? t : 0,
+    video: c.video ?? true
   };
 }
 
@@ -114,6 +119,7 @@ export function snapshot(ctx: C) {
     view: rt?.view ?? 'presets',
     allowControls: c.allowControls,
     transitionMs: c.transitionMs,
+    video: c.video,
     target: target(ctx),
     entries: c.switchers,
     switchers: views().map((s) => ({ id: s.id, name: s.name, host: s.host, model: s.model, serial: s.serial, reachable: s.reachable, read: s.read, lastError: s.lastError })),
@@ -324,6 +330,24 @@ async function setTransition(ctx: C, ms: unknown): Promise<void> {
   await draw(ctx);
 }
 
+/**
+ * A panel or web view showing live canvases asks for the preview streams it needs, every few seconds. Pulling
+ * a stream is a read (a GET the switcher serves without a token); it stops when no one has asked for a while.
+ */
+function watch(ctx: C, clientId: string, m: any): void {
+  if (!rt) return;
+  const sw = typeof m.sw === 'string' ? rt.switchers.get(m.sw) : undefined;
+  const port = sw?.client.session?.apiPort;
+  const wanted = Array.isArray(m.streams) ? m.streams.filter((x: unknown) => Number.isInteger(x)).slice(0, 4) : [];
+  const sources: Source[] =
+    cfg(ctx).video && sw && port && sw.view.reachable
+      ? sw.view.echo
+          .filter((e) => wanted.includes(e.index))
+          .map((e) => ({ sw: sw.view.id, host: sw.client.host, port, index: e.index, path: e.path, width: e.width, height: e.height }))
+      : [];
+  rt.video.want(clientId, sources);
+}
+
 // ---- operator actions: the only things that change the switcher -----------------------------------
 
 function disarm(): void {
@@ -411,7 +435,8 @@ function commandOf(m: any): Command | null {
 export default defineModule<State, Config>({
   async start(ctx) {
     if (rt) for (const s of rt.switchers.values()) s.stop();
-    rt = { switchers: new Map(), view: 'presets', presetPage: 0, armed: null, busy: false, drawTimer: null };
+    rt?.video.stop();
+    rt = { switchers: new Map(), view: 'presets', presetPage: 0, armed: null, busy: false, drawTimer: null, video: new VideoHub((m, id) => ctx.ui.send(m, id)) };
     await ctx.state.init({ sw: '', target: 'pvw' });
     await ctx.strip.set([
       { id: 'presets', label: 'Presets', icon: 'assets/presets.svg' },
@@ -431,6 +456,7 @@ export default defineModule<State, Config>({
     if (rt.drawTimer) clearTimeout(rt.drawTimer);
     disarm();
     for (const s of rt.switchers.values()) s.stop();
+    rt.video.stop();
     rt = null;
   },
 
@@ -469,6 +495,7 @@ export default defineModule<State, Config>({
 
   async client(ctx, { clientId, action }) {
     if (action === 'connect') await draw(ctx, clientId);
+    if (action === 'disconnect') rt?.video.drop(clientId);
   },
 
   async ui(ctx, { clientId, message: m }) {
@@ -514,6 +541,16 @@ export default defineModule<State, Config>({
         return setAllow(ctx, m.on);
       case 'transition':
         return setTransition(ctx, m.ms);
+      case 'video':
+        return watch(ctx, clientId, m);
+      case 'video-setting':
+        await ctx.setConfig({ ...cfg(ctx), video: m.on === true });
+        // Off: every stream stops now rather than when its viewers next ask.
+        if (m.on !== true) {
+          rt.video.stop();
+          rt.video = new VideoHub((x, id) => ctx.ui.send(x, id));
+        }
+        return draw(ctx);
       case 'reconnect':
         for (const s of rt.switchers.values()) void s.poll();
         return;

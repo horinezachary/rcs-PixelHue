@@ -73,8 +73,6 @@
       .src .v { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
       .src .v .bad { color: var(--rcs-error); }
       .outs { font: 12px var(--rcs-mono); color: var(--rcs-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-      .mvr { display: grid; gap: 3px; }
-      .mvr i { font-style: normal; background: #0b0d10; border: 1px solid var(--rcs-border); border-radius: 3px; font-size: 11px; padding: 3px 5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--rcs-text); }
 
       /* inputs */
       .inputs { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 8px; align-content: start; overflow-y: auto; flex: 1; min-height: 0; }
@@ -144,6 +142,7 @@
           <rcs-field id="address" label="IP address" kind="ip" placeholder="192.168.0.10"></rcs-field>
           <label class="toggle"><rcs-toggle id="allowControls" label="Allow controls"></rcs-toggle>Allow controls: load presets, Take and Cut</label>
           <rcs-field id="transition" label="Transition, ms (0: the switcher's own)" kind="number"></rcs-field>
+          <label class="toggle"><rcs-toggle id="video" label="Live video"></rcs-toggle>Live video: draw canvases from the switcher's input preview</label>
         </div>
         <div class="col">
           <span class="label" id="listHead">SWITCHERS</span>
@@ -167,11 +166,13 @@
       </div>
     </rcs-dialog>
 
+    <script src="video.js"></script>
     <script type="module">
       const $ = (id) => document.getElementById(id);
       const TITLES = { presets: 'Presets', outputs: 'Outputs', inputs: 'Inputs', setup: 'Setup' };
       const HUES = ['#3E63DD', '#8E4EC6', '#12A594', '#D6409F', '#F76B15', '#0090FF', '#46A758', '#E54666', '#AB4ABA', '#FFC53D'];
       let s = null;
+      const video = createVideo(rcs);
       let onYes = null;
 
       function el(tag, attrs = {}, text) {
@@ -209,6 +210,7 @@
             style: `left: ${l.x * scale}px; top: ${l.y * scale}px; width: ${Math.max(6, l.w * scale)}px; height: ${Math.max(6, l.h * scale)}px; --hue: ${hue(l)}` }, l.source);
           c.append(b);
         }
+        video.register(c, scr, layers);
         return c;
       }
 
@@ -313,14 +315,12 @@
           if (x.ftb) top.append(el('span', { class: 'badge sel' }, 'FTB'));
           c.append(top, el('span', { class: 'outs' }, `${x.width}×${x.height}${x.outputs.length ? ' · ' + x.outputs.join(', ') : ''}`));
           if (x.kind === 'mvr') {
-            const cols = Math.ceil(Math.sqrt(x.pgm.length || 1) * 1.2);
-            const g = el('div', { class: 'mvr', style: `grid-template-columns: repeat(${cols}, minmax(0, 1fr))` });
-            for (const l of x.pgm) g.append(el('i', { class: l.signal === 'off' ? 'off' : '', style: l.signal === 'off' ? 'color: var(--rcs-error)' : '' }, l.source));
-            c.append(g);
+            // The multiviewer to scale: each window named by what it shows, and live where the preview has it.
+            c.append(canvas(x, x.pgm, 150, 240));
           } else {
             const src = el('div', { class: 'src' });
             src.append(el('span', { class: 'b pgm' }, 'PGM'), srcLine(x.pgm), el('span', { class: 'b pvw' }, 'PVW'), srcLine(x.pvw));
-            c.append(src, canvas(x, x.pgm, 120, 340));
+            c.append(src, canvas(x, x.pgm, 120, 240));
           }
           box.append(c);
         }
@@ -345,6 +345,7 @@
 
       function drawSetup() {
         $('allowControls').checked = s.allowControls;
+        $('video').checked = s.video;
         const tf = $('transition');
         if (!tf.hasAttribute('editing')) tf.setAttribute('value', String(s.transitionMs));
         $('listHead').textContent = `SWITCHERS · ${s.entries.length} of 4`;
@@ -371,6 +372,7 @@
         $('address').setAttribute('value', '');
       });
       $('transition').addEventListener('change', (e) => rcs.send({ type: 'transition', ms: Number(e.detail) }));
+      $('video').addEventListener('change', (e) => rcs.send({ type: 'video-setting', on: !!e.detail }));
       $('allowControls').addEventListener('change', (e) =>
         e.detail
           ? ask('Allow commands to the switcher? Preset keys then load to preview (or to program after a second press), and TAKE and CUT go live.', 'Allow', 'danger', () => rcs.send({ type: 'allow', on: true }))
@@ -382,8 +384,9 @@
       rcs.on('message', (m) => {
         if (m?.type === 'snapshot') {
           s = m;
+          video.setSnapshot(m);
           draw();
-        }
+        } else video.onMessage(m);
       });
       rcs.send({ type: 'hello' });
     </script>
