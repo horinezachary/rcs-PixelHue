@@ -232,8 +232,10 @@ export class Q8Simulator {
     const out: unknown[] = [];
     let id = 1;
     const source = (inputId: number) => {
-      if (inputId === -2) return { sourceId: 0, sourceType: 3, sourceName: 'PGM' };
-      if (inputId === -4) return { sourceId: 0, sourceType: 4, sourceName: 'PVW' };
+      // As a real Q8: a multiviewer tile of a screen's PGM (3) or PVW (4) names the screen, by id.
+      const wall = this.screens.find((x) => x.type === 2)!;
+      if (inputId === -2) return { sourceId: wall.id, sourceType: 3, sourceName: wall.name };
+      if (inputId === -4) return { sourceId: wall.id, sourceType: 4, sourceName: wall.name };
       const i = this.inputs.find((x) => x.id === inputId);
       return { sourceId: inputId, sourceType: 2, sourceName: i?.name ?? '' };
     };

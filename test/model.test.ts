@@ -49,7 +49,8 @@ describe('reading the switcher', () => {
       { layerId: 1, layerIdObj: { type: 2, attachScreenId: 1, sceneType: 8 }, source: { general: { sourceType: 2, sourceId: 5 } }, window: { x: 1100, y: 10, width: 100, height: 50 }, zorder: 1 },
       { layerId: 2, layerIdObj: { type: 2, attachScreenId: 1, sceneType: 4 }, source: { general: { sourceType: 5, sourceName: '' } }, window: { x: 1000, y: 0, width: 1920, height: 1080 }, zorder: 0 },
       { layerId: 3, layerIdObj: { type: 2, attachScreenId: 1, sceneType: 2 }, enable: 0, source: { general: { sourceType: 2, sourceId: 5 } } },
-      { layerId: 4, layerIdObj: { type: 8, attachScreenId: 3, sceneType: 2 }, source: { general: { sourceType: 3 } }, window: { x: 0, y: 0, width: 960, height: 540 } }
+      { layerId: 4, layerIdObj: { type: 8, attachScreenId: 3, sceneType: 2 }, source: { general: { sourceType: 3, sourceId: 1, sourceName: 'Main' } }, window: { x: 0, y: 0, width: 960, height: 540 } },
+      { layerId: 5, layerIdObj: { type: 8, attachScreenId: 3, sceneType: 2 }, source: { general: { sourceType: 4, sourceId: 1 } }, window: { x: 960, y: 0, width: 960, height: 540 } }
     ] } };
     const ifs = { data: { list: [{ interfaceId: 5, general: { name: 'Cam' }, state: 1, auxiliaryInfo: { connectorInfo: { interfaceType: 2 } } }, { interfaceId: 9, general: { name: 'OUT 1' }, auxiliaryInfo: { connectorInfo: { interfaceType: 3 } } }] } };
     const inputs = inputsOf(ifs);
@@ -58,7 +59,8 @@ describe('reading the switcher', () => {
     expect(s[0]!.outputs).toEqual(['OUT 1']);
     expect(s[0]!.pgm.map((l) => [l.source, l.x, l.y])).toEqual([['Cam', 100, 10]]);
     expect(s[0]!.pvw.map((l) => l.source)).toEqual(['Background image', 'Cam']);
-    expect(s[1]!.pgm.map((l) => [l.source, l.kind])).toEqual([['PGM', 'window']]);
+    // A real Q8 names only the screen on a multiviewer tile of a screen's PGM or PVW.
+    expect(s[1]!.pgm.map((l) => [l.source, l.kind, l.screenRef])).toEqual([['PGM · Main', 'window', 1], ['PVW · Main', 'window', 1]]);
     expect(inputs[0]).toMatchObject({ onPgm: ['Main'], onPvw: ['Main'] });
   });
 });

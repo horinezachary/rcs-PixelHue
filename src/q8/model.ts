@@ -55,6 +55,8 @@ export interface LayerView {
   sourceType: number;
   /** The input's interfaceId when the source is an input. */
   inputId: number | null;
+  /** On a multiviewer tile showing a screen (sourceType 3 PGM, 4 PVW): that screen's id. */
+  screenRef: number | null;
   signal: Signal | null;
   x: number;
   y: number;
@@ -173,13 +175,18 @@ export function screensOf(rawScreens: unknown, rawLayers: unknown, rawInterfaces
     const inputId = sourceType === 2 || sourceType === 8 ? num(g.sourceId) : null;
     const input = inputId !== null ? inputById.get(inputId) : undefined;
     const at = origin.get(screen.id) ?? { x: 0, y: 0 };
+    // A multiviewer tile can show a screen's PGM (3) or PVW (4); sourceId is then that screen's id and
+    // sourceName only the screen's name, so say which.
+    const screenRef = sourceType === 3 || sourceType === 4 ? num(g.sourceId) : null;
+    const name = str(g.sourceName) || (screenRef !== null ? byId.get(screenRef)?.name ?? '' : '');
     const view: LayerView = {
       id: num(l.layerId),
       name: str(l.general?.name) || `Layer ${l.serial ?? l.layerId}`,
       kind,
-      source: str(g.sourceName) || input?.name || SOURCE_TYPE[sourceType] || 'Source',
+      source: screenRef !== null ? `${SOURCE_TYPE[sourceType]} · ${name || 'Screen ' + screenRef}` : name || input?.name || SOURCE_TYPE[sourceType] || 'Source',
       sourceType,
       inputId,
+      screenRef,
       signal: input?.signal ?? null,
       x: num(l.window?.x) - at.x,
       y: num(l.window?.y) - at.y,

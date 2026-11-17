@@ -103,7 +103,7 @@ describe('what is on each output', () => {
     expect(screenNamed('Confidence')).toMatchObject({ kind: 'aux', outputs: ['OUT 2-3'] });
     const mvr = screenNamed('MVR 1');
     expect(mvr.kind).toBe('mvr');
-    expect(mvr.pgm.map((l: any) => l.source).slice(8, 10)).toEqual(['PGM', 'PVW']);
+    expect(mvr.pgm.map((l: any) => l.source).slice(8, 10)).toEqual(['PGM · LED Wall', 'PVW · LED Wall']);
     expect(mvr.pvw).toEqual([]);
     // Unnamed placeholder screens are left out.
     expect(last().switcher.screens).toHaveLength(5);
