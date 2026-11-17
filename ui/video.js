@@ -5,9 +5,18 @@
 // is painted from it: each layer gets its input's tile, cropped out of the grid and scaled to the layer's
 // place on the screen. A multiviewer tile showing a screen's PGM or PVW gets that screen, drawn the same way.
 // Layers with no live picture keep the plain boxes drawn under the video.
+//
+// Canvases paint from the last frame each stream decoded, not straight from the <video>: a video element
+// briefly has no picture while it seeks to the live edge or takes a new init segment, and the page redraws its
+// canvases on every change from the switcher. The last frame is held for HOLD_MS; only a stream silent for
+// longer than that falls back to the boxes.
 
 const ASK_MS = 5000;
 const FRAME_MS = 100;
+/** How long a stream's last frame stays on the canvases after the stream stops delivering new ones. */
+const HOLD_MS = 10000;
+/** The held frame is kept at this fraction of the stream's size: enough for canvases a few hundred px wide. */
+const STILL_SCALE = 0.5;
 
 // A classic script (module frames are sandboxed, so an ES module import would be a cross-origin load).
 window.createVideo = function createVideo(rcs) {
@@ -28,7 +37,8 @@ window.createVideo = function createVideo(rcs) {
     video.autoplay = true;
     video.style.cssText = 'position:fixed;width:2px;height:2px;opacity:0;pointer-events:none;left:0;top:0';
     document.body.append(video);
-    p = { key, video, ms: null, sb: null, mime: '', queue: [], parts: new Map(), started: false };
+    const still = document.createElement('canvas');
+    p = { key, video, ms: null, sb: null, mime: '', queue: [], parts: new Map(), started: false, still, stillAt: 0, lastT: -1 };
     players.set(key, p);
     return p;
   }
@@ -105,6 +115,22 @@ window.createVideo = function createVideo(rcs) {
     pump(p);
   }
 
+  /** Copy a newly decoded frame into the player's held frame. */
+  function capture(p) {
+    const v = p.video;
+    if (v.readyState < 2 || !v.videoWidth || v.seeking || v.currentTime === p.lastT) return;
+    const w = Math.round(v.videoWidth * STILL_SCALE), h = Math.round(v.videoHeight * STILL_SCALE);
+    if (p.still.width !== w || p.still.height !== h) {
+      p.still.width = w;
+      p.still.height = h;
+    }
+    try {
+      p.still.getContext('2d').drawImage(v, 0, 0, w, h);
+      p.lastT = v.currentTime;
+      p.stillAt = performance.now();
+    } catch {}
+  }
+
   /** Stay at the live edge, and step over any gap a slow connection left. */
   function keepLive(p) {
     const v = p.video;
@@ -124,8 +150,8 @@ window.createVideo = function createVideo(rcs) {
       const t = e.tiles.find((x) => x.inputId === inputId);
       if (!t) continue;
       const p = players.get(`${snap.switcher.id}:${e.index}`);
-      if (!p || p.video.readyState < 2 || !p.video.videoWidth) return { e, t, p: null };
-      return { e, t, p };
+      const held = p && p.stillAt && performance.now() - p.stillAt < HOLD_MS;
+      return { e, t, p: held ? p : null };
     }
     return null;
   }
@@ -192,10 +218,10 @@ window.createVideo = function createVideo(rcs) {
       }
       const f = tileFor(l.inputId);
       if (!f?.p) continue;
-      const v = f.p.video;
-      const kx = v.videoWidth / f.e.width, ky = v.videoHeight / f.e.height;
+      const still = f.p.still;
+      const kx = still.width / f.e.width, ky = still.height / f.e.height;
       try {
-        g.drawImage(v, f.t.x * kx, f.t.y * ky, f.t.w * kx, f.t.h * ky, x, y, w, h);
+        g.drawImage(still, f.t.x * kx, f.t.y * ky, f.t.w * kx, f.t.h * ky, x, y, w, h);
         any = true;
         if (depth === 0) tag(g, l.source, Math.max(x, 0), Math.max(y, 0), w);
       } catch {}
@@ -221,24 +247,29 @@ window.createVideo = function createVideo(rcs) {
   }
 
   function frame() {
-    for (const p of players.values()) keepLive(p);
-    regs = regs.filter((r) => r.el.isConnected);
-    for (const r of regs) {
-      const dpr = window.devicePixelRatio || 1;
-      const box = r.el.getBoundingClientRect();
-      const cw = Math.round(box.width * dpr), ch = Math.round(box.height * dpr);
-      if (!cw || !ch) continue;
-      if (r.cv.width !== cw || r.cv.height !== ch) {
-        r.cv.width = cw;
-        r.cv.height = ch;
-      }
-      const g = r.cv.getContext('2d');
-      g.clearRect(0, 0, cw, ch);
-      g.imageSmoothingQuality = 'low';
-      const live = paintLayers(g, r.layers, r.scr, 0, 0, cw / r.scr.width, ch / r.scr.height, 0);
-      r.el.classList.toggle('video', live);
+    for (const p of players.values()) {
+      capture(p);
+      keepLive(p);
     }
+    regs = regs.filter((r) => r.el.isConnected);
+    for (const r of regs) paint(r);
     ask(false);
+  }
+
+  function paint(r) {
+    const dpr = window.devicePixelRatio || 1;
+    const box = r.el.getBoundingClientRect();
+    const cw = Math.round(box.width * dpr), ch = Math.round(box.height * dpr);
+    if (!cw || !ch) return;
+    if (r.cv.width !== cw || r.cv.height !== ch) {
+      r.cv.width = cw;
+      r.cv.height = ch;
+    }
+    const g = r.cv.getContext('2d');
+    g.clearRect(0, 0, cw, ch);
+    g.imageSmoothingQuality = 'low';
+    const live = paintLayers(g, r.layers, r.scr, 0, 0, cw / r.scr.width, ch / r.scr.height, 0);
+    r.el.classList.toggle('video', live);
   }
 
   setInterval(frame, FRAME_MS);
@@ -257,7 +288,11 @@ window.createVideo = function createVideo(rcs) {
       cv.className = 'vid';
       cv.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;pointer-events:none';
       el.append(cv);
-      regs.push({ el, cv, scr, layers });
+      const r = { el, cv, scr, layers };
+      regs.push(r);
+      // A canvas drawn anew shows the held frames at once, not a blank until the next tick.
+      if (el.isConnected) paint(r);
+      else requestAnimationFrame(() => r.el.isConnected && paint(r));
     },
     /** After a draw: ask for what the new canvases need now. */
     drawn() {
