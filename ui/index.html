@@ -34,6 +34,8 @@
 
       /* canvases: each screen drawn to scale with its layers as boxes named by their source */
       .pv { display: grid; grid-template-columns: minmax(0, 720px) 1fr; gap: 18px; flex: 1; min-height: 0; }
+      /* A taller screen (fullPanel, 1824×1080): larger program and preview canvases, and more presets a page. */
+      @media (min-height: 700px) { .pv { grid-template-columns: minmax(0, 1040px) 1fr; } .grid { grid-template-rows: repeat(6, minmax(0, 1fr)); } }
       .rows { display: flex; flex-direction: column; gap: 8px; min-height: 0; }
       .bus { display: flex; flex-direction: column; gap: 4px; min-height: 0; flex: 1; }
       .bus .label { display: flex; gap: 10px; align-items: center; }
@@ -201,6 +203,9 @@
       const hue = (l) => HUES[(l.inputId ?? l.sourceType + 7) % HUES.length];
 
       /** One screen to scale, height h px, its layers as boxes named by their source. */
+      const tall = () => window.innerHeight >= 700;
+      window.addEventListener('resize', () => s && draw());
+
       function canvas(scr, layers, h, maxW) {
         const scale = Math.min(h / scr.height, maxW / scr.width);
         const c = el('div', { class: 'canvas', style: `width: ${Math.round(scr.width * scale)}px; height: ${Math.round(scr.height * scale)}px` });
@@ -261,7 +266,7 @@
         for (const [bus, id] of [['pgm', 'pgmStrip'], ['pvw', 'pvwStrip']]) {
           const box = $(id);
           box.replaceChildren();
-          const h = Math.max(60, Math.min(118, (box.clientHeight || 140) - 20));
+          const h = Math.max(60, Math.min(tall() ? 400 : 118, (box.clientHeight || 140) - 20));
           const total = screens.reduce((a, x) => a + x.width / x.height, 0) || 1;
           const maxW = Math.max(20, ((box.clientWidth || 700) - 16 * screens.length) / total); // 10 px gap + 4 px border per screen
           for (const x of screens) {
@@ -270,7 +275,7 @@
             box.append(d);
           }
         }
-        const per = 15;
+        const per = tall() ? 30 : 15;
         const pages = Math.max(1, Math.ceil(sw.presets.length / per));
         if (drawPresets.page == null || drawPresets.page >= pages) drawPresets.page = 0;
         const g = $('grid');
