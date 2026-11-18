@@ -16,6 +16,9 @@
 //   key 12     switcher (when there are several): press for the next one
 //   key 13     what is on preview; press for the Outputs view
 //   key 14     CUT    key 15  TAKE  (on the screens selected on the switcher)
+//
+// On a larger deck (controller 0.21.0+) presets fill every row but the bottom one, and the bottom row
+// keeps LOAD TO and the switcher key first and PREVIEW, CUT and TAKE last, with more presets in between.
 
 import { randomBytes } from 'node:crypto';
 import { defineModule, type Ctx, type KeySetParams } from '@rcs/module-sdk';
@@ -45,6 +48,36 @@ export type View = 'presets' | 'outputs' | 'inputs' | 'setup';
 const VIEWS: View[] = ['presets', 'outputs', 'inputs', 'setup'];
 
 export const KEY = { PRESETS: 10, TARGET: 10, SWITCHER: 11, PVW: 12, CUT: 13, TAKE: 14 } as const;
+
+export interface Grid {
+  columns: number;
+  rows: number;
+}
+
+/** The deck as the controller describes it. Older controllers send no size: 5 × 3. */
+export function grid(ctx: { host: { deck: { columns?: number; rows?: number } } }): Grid {
+  return { columns: ctx.host.deck.columns ?? 5, rows: ctx.host.deck.rows ?? 3 };
+}
+
+export interface Layout {
+  keys: number;
+  /** Preset keys in order; the last one pages when there are more presets than keys. */
+  presets: number[];
+  target: number;
+  switcher: number;
+  pvw: number;
+  cut: number;
+  take: number;
+}
+
+/** Where everything goes on a deck of this size. On 5 × 3 it is KEY. */
+export function layout(g: Grid): Layout {
+  const keys = g.columns * g.rows;
+  const bottom = (g.rows - 1) * g.columns;
+  const presets = Array.from({ length: bottom }, (_, i) => i);
+  for (let k = bottom + 2; k < keys - 3; k++) presets.push(k);
+  return { keys, presets, target: bottom, switcher: bottom + 1, pvw: keys - 3, cut: keys - 2, take: keys - 1 };
+}
 export const MAX_SWITCHERS = 4;
 /** Loading straight to program fires on a second press within this time. */
 export const CONFIRM_MS = 3000;
@@ -134,16 +167,18 @@ export function snapshot(ctx: C) {
 
 // ---- keys --------------------------------------------------------------------------------------
 
-function presetPaging(n: number): { perPage: number; pages: number } {
-  const perPage = n > KEY.PRESETS ? KEY.PRESETS - 1 : KEY.PRESETS;
+function presetPaging(n: number, slots: number): { perPage: number; pages: number } {
+  const perPage = n > slots ? slots - 1 : slots;
   return { perPage, pages: Math.max(1, Math.ceil(n / perPage)) };
 }
 
 function presetOnKey(ctx: C, index: number): PresetView | undefined {
   const list = currentSwitcher(ctx)?.view.presets ?? [];
-  const { perPage, pages } = presetPaging(list.length);
-  if (index >= perPage) return undefined;
-  return list[Math.min(rt?.presetPage ?? 0, pages - 1) * perPage + index];
+  const L = layout(grid(ctx));
+  const { perPage, pages } = presetPaging(list.length, L.presets.length);
+  const slot = L.presets.indexOf(index);
+  if (slot < 0 || slot >= perPage) return undefined;
+  return list[Math.min(rt?.presetPage ?? 0, pages - 1) * perPage + slot];
 }
 
 function keyFaces(ctx: C): KeySetParams[] {
@@ -156,15 +191,16 @@ function keyFaces(ctx: C): KeySetParams[] {
   const armed = rt?.armed && rt.armed.sw === v?.id ? rt.armed.key : -1;
   const armedGuid = rt?.armed && rt.armed.sw === v?.id && rt.armed.cmd.action === 'preset' ? rt.armed.cmd.guid : '';
 
+  const L = layout(grid(ctx));
   const presets = v?.presets ?? [];
-  const { perPage, pages } = presetPaging(presets.length);
+  const { perPage, pages } = presetPaging(presets.length, L.presets.length);
   const page = Math.min(rt?.presetPage ?? 0, pages - 1);
-  for (let k = 0; k < KEY.PRESETS; k++) {
-    if (k === KEY.PRESETS - 1 && pages > 1) {
+  for (const [i, k] of L.presets.entries()) {
+    if (i === L.presets.length - 1 && pages > 1) {
       faces.push({ index: k, label: 'MORE ▶', sublabel: `${page + 1} of ${pages}` });
       continue;
     }
-    const p = presets[page * perPage + k];
+    const p = presets[page * perPage + i];
     if (!p) {
       faces.push(blank(k));
       continue;
@@ -178,21 +214,21 @@ function keyFaces(ctx: C): KeySetParams[] {
   }
 
   const t = target(ctx);
-  faces.push({ index: KEY.TARGET, label: 'LOAD TO', sublabel: t === 'pgm' ? 'PROGRAM' : 'PREVIEW', ...(t === 'pgm' ? { background: PGM_BG, color: ON } : {}) });
+  faces.push({ index: L.target, label: 'LOAD TO', sublabel: t === 'pgm' ? 'PROGRAM' : 'PREVIEW', ...(t === 'pgm' ? { background: PGM_BG, color: ON } : {}) });
 
   const list = views();
-  faces.push(list.length > 1 && v ? { index: KEY.SWITCHER, label: short(v.name.toUpperCase(), 10), sublabel: `${list.findIndex((x) => x.id === v.id) + 1} of ${list.length} ▶` } : blank(KEY.SWITCHER));
+  faces.push(list.length > 1 && v ? { index: L.switcher, label: short(v.name.toUpperCase(), 10), sublabel: `${list.findIndex((x) => x.id === v.id) + 1} of ${list.length} ▶` } : blank(L.switcher));
 
   const onPvw = presets.find((p) => p.region === 'pvw');
-  faces.push(v ? { index: KEY.PVW, label: 'PREVIEW', sublabel: offline ? 'offline' : short(onPvw?.name.toUpperCase() ?? '–', 12) } : blank(KEY.PVW));
+  faces.push(v ? { index: L.pvw, label: 'PREVIEW', sublabel: offline ? 'offline' : short(onPvw?.name.toUpperCase() ?? '–', 12) } : blank(L.pvw));
 
   const can = !!v && !offline && (sw?.takeScreens().length ?? 0) > 0;
-  faces.push(v ? { index: KEY.CUT, label: 'CUT', sublabel: offline ? 'offline' : can ? '' : 'no screen', ...(can && c.allowControls ? { background: '#2A2F38', color: ON } : {}) } : blank(KEY.CUT));
-  faces.push(v ? { index: KEY.TAKE, label: 'TAKE', sublabel: offline ? 'offline' : can ? '' : 'no screen', ...(can && c.allowControls ? { background: '#C62828', color: ON } : {}) } : blank(KEY.TAKE));
+  faces.push(v ? { index: L.cut, label: 'CUT', sublabel: offline ? 'offline' : can ? '' : 'no screen', ...(can && c.allowControls ? { background: '#2A2F38', color: ON } : {}) } : blank(L.cut));
+  faces.push(v ? { index: L.take, label: 'TAKE', sublabel: offline ? 'offline' : can ? '' : 'no screen', ...(can && c.allowControls ? { background: '#C62828', color: ON } : {}) } : blank(L.take));
 
   // Without Allow controls the keys show the tally and send nothing.
   if (!c.allowControls && v) {
-    for (const f of faces) if (f.index === KEY.TAKE) Object.assign(f, { label: 'VIEW ONLY', sublabel: 'see Setup' });
+    for (const f of faces) if (f.index === L.take) Object.assign(f, { label: 'VIEW ONLY', sublabel: 'see Setup' });
   }
   return faces;
 }
@@ -433,6 +469,18 @@ function commandOf(m: any): Command | null {
 }
 
 export default defineModule<State, Config>({
+  // Every key of a larger deck: more presets per page. Older controllers ignore this and send 15 keys.
+  fullDeck: true,
+
+  // The deck changed size: an armed key may have moved and the pages changed.
+  async deck(ctx) {
+    if (!rt) return;
+    disarm();
+    rt.presetPage = 0;
+    await ctx.keys.clear();
+    await draw(ctx);
+  },
+
   async start(ctx) {
     if (rt) for (const s of rt.switchers.values()) s.stop();
     rt?.video.stop();
@@ -462,10 +510,11 @@ export default defineModule<State, Config>({
 
   async key(ctx, { index, action }) {
     if (action !== 'down' || !rt) return;
-    if (index < KEY.PRESETS) {
+    const L = layout(grid(ctx));
+    if (L.presets.includes(index)) {
       const n = currentSwitcher(ctx)?.view.presets.length ?? 0;
-      const { pages } = presetPaging(n);
-      if (index === KEY.PRESETS - 1 && pages > 1) {
+      const { pages } = presetPaging(n, L.presets.length);
+      if (index === L.presets.at(-1) && pages > 1) {
         disarm();
         rt.presetPage = (rt.presetPage + 1) % pages;
         return draw(ctx);
@@ -474,18 +523,18 @@ export default defineModule<State, Config>({
       if (p) await pressPreset(ctx, index, p);
       return;
     }
-    if (index === KEY.TARGET) return setTarget(ctx, target(ctx) === 'pvw' ? 'pgm' : 'pvw');
-    if (index === KEY.SWITCHER) {
+    if (index === L.target) return setTarget(ctx, target(ctx) === 'pvw' ? 'pgm' : 'pvw');
+    if (index === L.switcher) {
       const list = views();
       if (list.length < 2) return;
       const i = list.findIndex((s) => s.id === currentSwitcher(ctx)?.view.id);
       return selectSwitcher(ctx, list[(i + 1) % list.length]!.id);
     }
-    if (index === KEY.PVW) return setView(ctx, 'outputs');
-    if (index === KEY.TAKE || index === KEY.CUT) {
+    if (index === L.pvw) return setView(ctx, 'outputs');
+    if (index === L.take || index === L.cut) {
       disarm();
       const sw = currentSwitcher(ctx);
-      if (sw?.view.reachable) await send(ctx, sw.view.id, { action: index === KEY.TAKE ? 'take' : 'cut' }, 'the panel keys');
+      if (sw?.view.reachable) await send(ctx, sw.view.id, { action: index === L.take ? 'take' : 'cut' }, 'the panel keys');
     }
   },
 
@@ -511,7 +560,7 @@ export default defineModule<State, Config>({
         return setTarget(ctx, m.target);
       case 'page': {
         const n = currentSwitcher(ctx)?.view.presets.length ?? 0;
-        const { pages } = presetPaging(n);
+        const { pages } = presetPaging(n, layout(grid(ctx)).presets.length);
         rt.presetPage = Math.max(0, Math.min(pages - 1, Number(m.page) || 0));
         disarm();
         return draw(ctx);

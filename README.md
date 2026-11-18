@@ -26,6 +26,10 @@ The web view has the same pages; there each preset has a PVW and a PGM button, a
 | 14 | CUT |
 | 15 | TAKE |
 
+On a larger deck (an XL, 8×4, or a Stream Deck + XL, 9×4) presets fill every row but the bottom one and the
+middle of the bottom row; the bottom row starts with LOAD TO and the switcher key and ends with PREVIEW, CUT
+and TAKE. This needs controller 0.21.0 or later; older controllers show the 15-key layout.
+
 A preset key loads to preview at once. With Load to PROGRAM, the first press arms it (PRESS AGAIN) and a second
 press within 3 seconds sends it. TAKE and CUT act on the screens selected on the switcher, which loading a preset
 selects (as on the switcher's own front panel); with none selected they use the screens of the preset on preview.
