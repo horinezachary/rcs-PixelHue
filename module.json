@@ -4,6 +4,7 @@
   "version": "0.1.0",
   "description": "PixelHue Q8 presets to preview and take, and what is on every output",
   "icon": "assets/icon.svg",
+  "theme": { "accent": "#0064C8", "dark": { "accent": "#2F86E8" } },
   "apiVersion": 1,
   "entry": "dist/index.js",
   "ui": "ui",

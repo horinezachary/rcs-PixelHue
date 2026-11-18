@@ -70,6 +70,13 @@ crops, effects and transitions don't show. Layers with no input in the stream ke
 
 Setup has a Live video switch (on by default); it is a read either way.
 
+## Icon and colour
+
+`assets/icon.svg` is the PixelHue cube mark without the wordmark, traced as one colour from the logo Zac
+supplied. The accent colour (`theme` in `module.json`) is the logo's blue, lightened a little in Dark so it reads.
+PixelHue is a trademark of its owner. The mark is used only to show which equipment this module works with. This
+module is not made or endorsed by PixelHue.
+
 ## Development
 
 ```sh
