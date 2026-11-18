@@ -38,9 +38,9 @@ async function q8(name = 'Q8 Main', serial = 'Q8SIM0001') {
 
 const entry = (id: string, port: number) => ({ id, host: '127.0.0.1', port, label: '' });
 
-async function start(switchers: Config['switchers'], extra: { allow?: boolean; state?: State; reason?: 'boot' | 'restore' | 'user'; transitionMs?: number } = {}) {
+async function start(switchers: Config['switchers'], extra: { allow?: boolean; state?: State; reason?: 'boot' | 'restore' | 'user'; transitionMs?: number; deck?: { columns: number; rows: number } } = {}) {
   const config: Config = { switchers, allowControls: extra.allow ?? false, transitionMs: extra.transitionMs ?? 0 };
-  sim = await startTestModule(mod, { config, state: extra.state, reason: extra.reason });
+  sim = await startTestModule(mod, { config, state: extra.state, reason: extra.reason, deck: extra.deck });
   await sim.settle();
   await until(() => last()?.switchers?.length === switchers.length && last().switchers.every((s: any) => s.read && s.reachable), 5000, 'for the switchers');
   await sim.settle();
@@ -310,5 +310,28 @@ describe('live video', () => {
     await new Promise((r) => setTimeout(r, 500));
     expect(q.echoViewers).toBe(0);
     expect(videoFor('web-1')).toEqual([]);
+  });
+});
+
+describe('a larger Stream Deck', () => {
+  it('lays presets over an XL with TAKE on the last key, and goes back to 15 keys on a smaller deck', async () => {
+    const { q, port } = await q8();
+    await start([entry('00000001', port)], { allow: true, deck: { columns: 8, rows: 4 } });
+    expect(sim!.keys).toHaveLength(32);
+    expect(sim!.keys[3]).toMatchObject({ label: 'PANEL' });
+    expect(sim!.keys[24]).toMatchObject({ label: 'LOAD TO' });
+    expect(sim!.keys[29]).toMatchObject({ label: 'PREVIEW' });
+    expect(sim!.keys[30]).toMatchObject({ label: 'CUT' });
+    expect(sim!.keys[31]).toMatchObject({ label: 'TAKE' });
+    await sim!.press(3);
+    expect(q.writes[0]).toMatchObject({ path: 'POST preset/apply' });
+    await sim!.press(31);
+    expect(q.writes[1]).toMatchObject({ path: 'PUT screen/take' });
+
+    await sim!.setDeck(5, 3);
+    await sim!.settle();
+    expect(sim!.keys).toHaveLength(15);
+    expect(sim!.keys[KEY.TAKE]).toMatchObject({ label: 'TAKE' });
+    expect(sim!.keys[KEY.TARGET]).toMatchObject({ label: 'LOAD TO' });
   });
 });
