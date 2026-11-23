@@ -13,6 +13,13 @@ only the Q8 shape has been tested (against the simulator here).
 - **Inputs**: every input with its signal and format, and where it is on program and preview.
 - **Setup**: switchers by address (up to 4), Allow controls and the transition time.
 
+On a 16:9 touchscreen (1920×1080) the pages use the height: on Presets the screens wrap onto lines (a wide LED
+wall on a line of its own, the IMAGs and AUX under it) so the canvases are about twice as large, and the presets
+sit four a row, up to 32 a page. Outputs draws each screen's program and preview as wide as its card with the
+layers listed under them, and the multiviewer two cards wide. Inputs shows a live picture for every input
+while the page is open. What does not fit says "+N more" (inputs in use with no signal first). The 1920×440 bar
+is unchanged.
+
 The web view has the same pages; there each preset has a PVW and a PGM button, and PGM, Take and Cut ask first.
 
 ## Stream Deck

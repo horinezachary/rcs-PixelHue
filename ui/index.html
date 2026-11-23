@@ -34,8 +34,6 @@
 
       /* canvases: each screen drawn to scale with its layers as boxes named by their source */
       .pv { display: grid; grid-template-columns: minmax(0, 720px) 1fr; gap: 18px; flex: 1; min-height: 0; }
-      /* A taller screen (fullPanel, 1824×1080): larger program and preview canvases, and more presets a page. */
-      @media (min-height: 700px) { .pv { grid-template-columns: minmax(0, 1040px) 1fr; } .grid { grid-template-rows: repeat(6, minmax(0, 1fr)); } }
       .rows { display: flex; flex-direction: column; gap: 8px; min-height: 0; }
       .bus { display: flex; flex-direction: column; gap: 4px; min-height: 0; flex: 1; }
       .bus .label { display: flex; gap: 10px; align-items: center; }
@@ -99,6 +97,33 @@
 
       .toast { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); background: #3A2A0E; border: 2px solid var(--rcs-accent); color: #FFE2B0;
         padding: 10px 20px; border-radius: 12px; font-size: 17px; font-weight: 600; white-space: nowrap; z-index: 50; }
+
+      /* A taller screen (fullPanel, 1824×1080). The 440 bar above is untouched; everything tall is here, after the
+         base rules so it wins. Presets: the canvases wrap onto lines and take the height, the preset column narrows
+         to four tiles a row sized to the presets on the page. Outputs: each thumbnail fills its card with the layers
+         listed under it. Inputs: a live picture per input. */
+      @media (min-height: 700px) {
+        .pv { grid-template-columns: minmax(0, 1fr) 560px; }
+        .grid { grid-template-columns: repeat(4, minmax(0, 1fr)); grid-template-rows: repeat(var(--rows, 8), 104px); grid-auto-rows: 104px; flex: none; }
+        .strip { flex-wrap: wrap; align-content: flex-start; row-gap: 8px; }
+        .strip .brk { flex-basis: 100%; height: 0; }
+        .scr .sn { font-size: 14px; }
+        .cards { grid-auto-flow: row; grid-template-columns: repeat(var(--cols, 5), minmax(0, 1fr)); grid-auto-columns: auto; overflow: hidden; align-content: start; }
+        .card.mvr { grid-column: span 2; }
+        .card .bl { font: 800 11px var(--rcs-font); letter-spacing: 0.08em; margin-top: 4px; }
+        .card .bl.pgm { color: var(--pgm); } .card .bl.pvw { color: var(--pvw); }
+        .lys { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; font-size: 13px; }
+        .lys .v { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .lys .v.bad { color: var(--rcs-error); }
+        .lys .g { font: 12px var(--rcs-mono); color: var(--rcs-muted); white-space: nowrap; }
+        .inputs { grid-template-columns: repeat(var(--cols, 4), minmax(0, 1fr)); overflow: hidden; }
+        .in { gap: 6px; padding: 10px 12px; }
+        .in .n { font-size: 17px; }
+        .in .u { font-size: 13px; }
+        .in .canvas { align-self: center; }
+        .in.off .canvas .none { color: var(--rcs-error); }
+        .more { grid-column: 1 / -1; color: var(--rcs-muted); font-size: 14px; padding: 4px 2px; }
+      }
     </style>
   </head>
   <body>
@@ -254,6 +279,54 @@
         }
       }
 
+      // Tall presets: the screens go in order onto one or more lines, each line as tall as the width allows, and
+      // the lines together scaled to the strip's height. Every split is tried (screens are few) and the one whose
+      // smallest canvas is largest wins, so a wide LED wall gets a line of its own and the IMAGs sit under it.
+      const SN = 20; // screen name above a canvas
+      function lineSplit(screens, W, H) {
+        const asp = screens.map((x) => Math.max(1, x.width) / Math.max(1, x.height));
+        const n = screens.length;
+        let best = null;
+        const score = (cuts) => {
+          const lines = [];
+          for (let i = 0; i < cuts.length - 1; i++) {
+            const a = asp.slice(cuts[i], cuts[i + 1]);
+            const k = a.length;
+            lines.push({ from: cuts[i], to: cuts[i + 1], h: (W - 10 * (k - 1) - 4 * k) / a.reduce((x, y) => x + y, 0) });
+          }
+          // A line break is a flex line of its own, so each one costs two row gaps.
+          const fixed = lines.length * (SN + 4) + 16 * (lines.length - 1);
+          const sum = lines.reduce((x, l) => x + l.h, 0);
+          const f = Math.min(1, Math.max(0, H - fixed) / Math.max(1, sum));
+          for (const l of lines) l.h = Math.floor(l.h * f);
+          const min = Math.min(...lines.map((l) => l.h));
+          const area = lines.reduce((x, l) => x + asp.slice(l.from, l.to).reduce((y, q) => y + q * l.h * l.h, 0), 0);
+          if (!best || min > best.min + 4 || (min > best.min - 4 && area > best.area)) best = { min, area, lines };
+        };
+        const walk = (cuts) => {
+          const last = cuts[cuts.length - 1];
+          if (last === n) return score(cuts);
+          for (let to = last + 1; to <= n; to++) walk([...cuts, to]);
+        };
+        if (n && n <= 6) walk([0]);
+        else score([0, n]);
+        return best;
+      }
+
+      function drawLines(box, screens, bus) {
+        const W = box.clientWidth || 1200;
+        const best = lineSplit(screens, W, box.clientHeight || 440);
+        if (!best) return;
+        best.lines.forEach((l, i) => {
+          if (i) box.append(el('div', { class: 'brk' }));
+          for (const x of screens.slice(l.from, l.to)) {
+            const d = el('div', { class: 'scr' });
+            d.append(el('span', { class: 'sn' }, x.name + (x.selected ? ' ●' : '')), canvas(x, x[bus], Math.max(40, l.h), W));
+            box.append(d);
+          }
+        });
+      }
+
       function drawPresets() {
         const sw = s.switcher;
         const live = sw.reachable && s.allowControls;
@@ -266,6 +339,10 @@
         for (const [bus, id] of [['pgm', 'pgmStrip'], ['pvw', 'pvwStrip']]) {
           const box = $(id);
           box.replaceChildren();
+          if (tall()) {
+            drawLines(box, screens, bus);
+            continue;
+          }
           const h = Math.max(60, Math.min(tall() ? 400 : 118, (box.clientHeight || 140) - 20));
           const total = screens.reduce((a, x) => a + x.width / x.height, 0) || 1;
           const maxW = Math.max(20, ((box.clientWidth || 700) - 16 * screens.length) / total); // 10 px gap + 4 px border per screen
@@ -275,12 +352,15 @@
             box.append(d);
           }
         }
-        const per = tall() ? 30 : 15;
+        // Tall: four tiles a row, eight rows, and only as many rows as this page has presets.
+        const per = tall() ? 32 : 15;
         const pages = Math.max(1, Math.ceil(sw.presets.length / per));
         if (drawPresets.page == null || drawPresets.page >= pages) drawPresets.page = 0;
         const g = $('grid');
         g.replaceChildren();
-        for (const p of sw.presets.slice(drawPresets.page * per, drawPresets.page * per + per)) {
+        const onPage = sw.presets.slice(drawPresets.page * per, drawPresets.page * per + per);
+        g.style.setProperty('--rows', String(Math.max(1, Math.ceil(onPage.length / 4))));
+        for (const p of onPage) {
           const armed = s.armed?.guid === p.guid;
           const t = el('button', { class: 'tile ' + (armed ? 'armed' : p.region) });
           const tag = el('span', { class: 't' });
@@ -311,6 +391,8 @@
       function drawOutputs() {
         const box = $('view-outputs');
         box.replaceChildren();
+        box.style.removeProperty('--cols');
+        if (tall()) return drawOutputsTall(box);
         for (const x of s.switcher.screens) {
           const c = el('div', { class: 'card' });
           const top = el('div', { class: 'top' });
@@ -334,6 +416,8 @@
       function drawInputs() {
         const box = $('view-inputs');
         box.replaceChildren();
+        box.style.removeProperty('--cols');
+        if (tall()) return drawInputsTall(box);
         for (const i of s.switcher.inputs) {
           const c = el('div', { class: 'in ' + i.signal });
           const top = el('div', { class: 'top' });
@@ -345,6 +429,98 @@
           if (!i.onPgm.length && !i.onPvw.length) u.append(el('span', { style: 'color: var(--rcs-muted)' }, 'Not in use'));
           c.append(u);
           box.append(c);
+        }
+      }
+
+      const bad = (x) => x.ftb || [...x.pgm, ...x.pvw].some((l) => l.signal === 'off');
+
+      /** A screen's layers, one a row: source and where it sits. */
+      function layerList(layers, max) {
+        const box = el('div', { class: 'lys' });
+        if (!layers.length) box.append(el('span', { class: 'v', style: 'color: var(--rcs-muted)' }, 'Nothing on it'), el('span'));
+        for (const l of layers.slice(0, max)) {
+          box.append(el('span', { class: 'v' + (l.signal === 'off' ? ' bad' : '') }, l.source + (l.signal === 'off' ? ' · no signal' : '')),
+            el('span', { class: 'g' }, `${l.w}×${l.h} at ${l.x},${l.y}`));
+        }
+        if (layers.length > max) box.append(el('span', { class: 'v', style: 'color: var(--rcs-muted)' }, `+${layers.length - max} more layers`), el('span'));
+        return box;
+      }
+
+      // Tall outputs: cards in a grid, each thumbnail as wide as its card with the layers under it, the
+      // multiviewer two columns wide. Cards that do not fit become "+N more", with screens in trouble first.
+      function drawOutputsTall(box) {
+        let screens = s.switcher.screens;
+        const units = screens.reduce((a, x) => a + (x.kind === 'mvr' ? 2 : 1), 0);
+        const cols = Math.max(2, Math.min(6, units));
+        box.style.setProperty('--cols', String(cols));
+        const colW = ((box.clientWidth || 1800) - 12 * (cols - 1)) / cols;
+        const card = (x) => {
+          const c = el('div', { class: 'card' + (x.kind === 'mvr' ? ' mvr' : '') });
+          const top = el('div', { class: 'top' });
+          top.append(el('span', { class: 'n' }, x.name), el('span', { class: 'badge' }, { main: 'SCREEN', aux: 'AUX', mvr: 'MULTIVIEW' }[x.kind]));
+          if (x.selected) top.append(el('span', { class: 'badge sel' }, 'SELECTED'));
+          if (x.freeze) top.append(el('span', { class: 'badge' }, 'FROZEN'));
+          if (x.ftb) top.append(el('span', { class: 'badge sel' }, 'FTB'));
+          c.append(top, el('span', { class: 'outs' }, `${x.width}×${x.height}${x.outputs.length ? ' · ' + x.outputs.join(', ') : ''}`));
+          const w = (x.kind === 'mvr' ? 2 * colW + 12 : colW) - 32;
+          if (x.kind === 'mvr') {
+            c.append(canvas(x, x.pgm, 2000, w), layerList(x.pgm, 16));
+          } else {
+            for (const bus of ['pgm', 'pvw']) {
+              c.append(el('span', { class: 'bl ' + bus }, bus === 'pgm' ? 'PROGRAM' : 'PREVIEW'), canvas(x, x[bus], 2000, w), layerList(x[bus], 4));
+            }
+          }
+          return c;
+        };
+        screens.forEach((x) => box.append(card(x)));
+        if (box.scrollHeight <= box.clientHeight + 1) return;
+        // Too many to show: the ones that need a look first, then as many as fit, then "+N more".
+        screens = [...screens.filter(bad), ...screens.filter((x) => !bad(x))];
+        let n = screens.length;
+        while (n > 1) {
+          n--;
+          box.replaceChildren(...screens.slice(0, n).map(card), el('div', { class: 'more' }, `+${screens.length - n} more: see the web view`));
+          if (box.scrollHeight <= box.clientHeight + 1) break;
+        }
+      }
+
+      // Tall inputs: a tile per input with its live picture, as many columns as it takes to fit them all with the
+      // largest pictures. Past eight columns, inputs in use without signal go first and the rest are "+N more".
+      function drawInputsTall(box) {
+        const all = s.switcher.inputs;
+        const W = box.clientWidth || 1800;
+        const H = box.clientHeight || 960;
+        let cols = 8;
+        for (let c = 3; c <= 8; c++) {
+          const rows = Math.ceil(all.length / c);
+          const pic = (((W - 8 * (c - 1)) / c) - 28) * 9 / 16;
+          if (rows * (pic + 78) + 8 * (rows - 1) <= H) { cols = c; break; }
+        }
+        box.style.setProperty('--cols', String(cols));
+        const picW = (W - 8 * (cols - 1)) / cols - 28;
+        const tile = (i) => {
+          const c = el('div', { class: 'in ' + i.signal });
+          const top = el('div', { class: 'top' });
+          top.append(el('span', { class: 'dot' }), el('span', { class: 'n' }, i.name), el('span', { class: 'f' }, i.format || i.signalText));
+          const m = /^(\d+)×(\d+)/.exec(i.format || '');
+          const scr = { width: m ? +m[1] : 1920, height: m ? +m[2] : 1080 };
+          const layer = { x: 0, y: 0, w: scr.width, h: scr.height, source: i.signal === 'off' ? i.signalText : i.name, sourceType: 0, inputId: i.id, screenRef: null, signal: i.signal };
+          const u = el('span', { class: 'u' });
+          if (i.onPgm.length) u.append(el('b', { style: 'color: var(--pgm)' }, 'PGM '), i.onPgm.join(', '), ' ');
+          if (i.onPvw.length) u.append(el('b', { style: 'color: var(--pvw)' }, 'PVW '), i.onPvw.join(', '));
+          if (!i.onPgm.length && !i.onPvw.length) u.append(el('span', { style: 'color: var(--rcs-muted)' }, 'Not in use'));
+          c.append(top, canvas(scr, [layer], picW * 9 / 16, picW), u);
+          return c;
+        };
+        all.forEach((i) => box.append(tile(i)));
+        if (box.scrollHeight <= box.clientHeight + 1) return;
+        const used = (i) => i.onPgm.length || i.onPvw.length;
+        const list = [...all.filter((i) => used(i) && i.signal === 'off'), ...all.filter((i) => !(used(i) && i.signal === 'off'))];
+        let n = list.length;
+        while (n > 1) {
+          n--;
+          box.replaceChildren(...list.slice(0, n).map(tile), el('div', { class: 'more' }, `+${list.length - n} more: see the web view`));
+          if (box.scrollHeight <= box.clientHeight + 1) break;
         }
       }
 
